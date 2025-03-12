@@ -117,7 +117,7 @@ fun FriendCard(friend: Friend, modifier: Modifier = Modifier) {
                 }
 
                 val balanceColor = when {
-                    friend.balance > 0 -> MaterialTheme.colorScheme.tertiary
+                    friend.balance > 0 -> MaterialTheme.colorScheme.primary
                     friend.balance < 0 -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }

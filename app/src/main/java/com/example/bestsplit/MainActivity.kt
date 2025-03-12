@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            BestSplitTheme(dynamicColor = false) {
+            BestSplitTheme {
                 AppMain()
             }
         }
