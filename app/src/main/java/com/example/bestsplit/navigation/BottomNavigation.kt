@@ -15,11 +15,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
+sealed class Screen(val route: String, val title: String, val icon: ImageVector? = null) {
     object Groups : Screen("groups", "Groups", Icons.Default.Home)
     object Friends : Screen("friends", "Friends", Icons.Default.Person)
     object Account : Screen("account", "Account", Icons.Default.AccountCircle)
     object Activity : Screen("activity", "Activity", Icons.Default.List)
+
+    // Add Group screen without an icon since it's not a bottom nav item
+    object AddGroup : Screen("add_group", "Add Group")
 }
 
 @Composable
@@ -42,7 +45,11 @@ fun BottomNavigationBar(
         screens.forEach { screen ->
             val selected = currentRoute == screen.route
             NavigationBarItem(
-                icon = { Icon(imageVector = screen.icon, contentDescription = screen.title) },
+                icon = {
+                    screen.icon?.let { icon ->
+                        Icon(imageVector = icon, contentDescription = screen.title)
+                    }
+                },
                 label = { Text(screen.title) },
                 selected = selected,
                 onClick = { onNavigate(screen) }
