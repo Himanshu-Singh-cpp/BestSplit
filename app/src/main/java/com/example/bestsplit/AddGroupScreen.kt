@@ -41,10 +41,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.bestsplit.ui.theme.BestSplitTheme
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.bestsplit.ui.viewmodel.GroupViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddGroupScreen(
+    viewModel: GroupViewModel = viewModel(),  // Add this line
     onNavigateBack: () -> Unit = {},
     onGroupCreated: () -> Unit = {}
 ) {
@@ -148,7 +151,11 @@ fun AddGroupScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             Button(
-                onClick = onGroupCreated,
+                onClick = {
+                    // Save group to database
+                    viewModel.insertGroup(groupName, groupDescription)
+                    onGroupCreated()
+                },
                 enabled = groupName.isNotBlank(),
                 modifier = Modifier
                     .fillMaxWidth()

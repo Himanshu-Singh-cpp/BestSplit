@@ -24,31 +24,63 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.bestsplit.data.entity.Group
 import com.example.bestsplit.ui.theme.BestSplitTheme
+import com.example.bestsplit.ui.viewmodel.GroupViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun GroupsScreen(
     modifier: Modifier = Modifier,
+    viewModel: GroupViewModel = viewModel(),
     onNavigateToAddGroup: () -> Unit = {}
 ) {
-    val groups = listOf("Family Trip", "Roommates", "Weekend Getaway")
+    // Collect groups from the database
+    val groups by viewModel.allGroups.collectAsState(initial = emptyList())
+
     Box(modifier = modifier.fillMaxSize()) {
-        Column {
-            Text(
-                text = "My Groups",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(16.dp)
-            )
-            GroupList(groups = groups)
+        if (groups.isEmpty()) {
+            // Show empty state
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+            ) {
+                Text(
+                    text = "No Groups Yet",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Create your first group by tapping the + button",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        } else {
+            Column {
+                Text(
+                    text = "My Groups",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(16.dp)
+                )
+                GroupList(groups = groups)
+            }
         }
 
         // Add floating action button for creating new groups
         FloatingActionButton(
-            onClick = onNavigateToAddGroup,  // This now uses the provided navigation function
+            onClick = onNavigateToAddGroup,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
@@ -64,16 +96,19 @@ fun GroupsScreen(
 }
 
 @Composable
-fun GroupList(groups: List<String>, modifier: Modifier = Modifier) {
+fun GroupList(groups: List<Group>, modifier: Modifier = Modifier) {
     LazyColumn(modifier = modifier) {
-        items(groups) { groupName ->
-            GroupCard(groupName = groupName)
+        items(groups) { group ->
+            GroupCard(group = group)
         }
     }
 }
 
 @Composable
-fun GroupCard(groupName: String, modifier: Modifier = Modifier) {
+fun GroupCard(group: Group, modifier: Modifier = Modifier) {
+    val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+    val formattedDate = dateFormat.format(Date(group.createdAt))
+
     Card(
         modifier = modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -101,7 +136,7 @@ fun GroupCard(groupName: String, modifier: Modifier = Modifier) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = groupName.first().toString(),
+                    text = group.name.firstOrNull()?.toString() ?: "#",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -112,15 +147,24 @@ fun GroupCard(groupName: String, modifier: Modifier = Modifier) {
             // Group information
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = groupName,
+                    text = group.name,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                if (group.description.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = group.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
 
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Tap to view details",
+                    text = "Created: $formattedDate",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
