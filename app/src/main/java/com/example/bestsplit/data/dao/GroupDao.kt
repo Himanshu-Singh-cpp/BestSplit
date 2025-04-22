@@ -20,6 +20,9 @@ interface GroupDao {
     @Delete
     suspend fun deleteGroup(group: Group)
 
+    @Query("SELECT * FROM groups")
+    suspend fun getAllGroupsSync(): List<Group>
+
     @Query("SELECT * FROM groups ORDER BY createdAt DESC")
     fun getAllGroups(): Flow<List<Group>>
 

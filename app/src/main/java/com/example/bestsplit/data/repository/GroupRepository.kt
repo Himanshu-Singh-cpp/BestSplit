@@ -27,10 +27,10 @@ class GroupRepository(
 
     val allGroups: Flow<List<Group>> = groupDao.getAllGroups()
 
-    init {
-        // Register a lifecycle callback to sync when app comes to foreground
-        registerActivityLifecycleCallbacks()
-    }
+//    init {
+//        // Register a lifecycle callback to sync when app comes to foreground
+//        registerActivityLifecycleCallbacks()
+//    }
 
     private fun registerActivityLifecycleCallbacks() {
         val application = Application.getProcessName()?.let {
@@ -192,34 +192,66 @@ class GroupRepository(
         Log.d(TAG, "Starting group sync for user: $currentUserId")
 
         try {
-            // Query groups collection directly for groups where current user is a member
+            // Get all locally stored groups
+            val localGroups = groupDao.getAllGroupsSync()
+            val localGroupIds = localGroups.map { it.id }.toSet()
+
+            // Query cloud for groups where current user is a member
             val groupsQuerySnapshot = firestore.collection(COLLECTION_GROUPS)
                 .whereArrayContains("members", currentUserId)
                 .get()
                 .await()
 
-            Log.d(TAG, "Found ${groupsQuerySnapshot.size()} groups for user")
+            Log.d(TAG, "Found ${groupsQuerySnapshot.size()} groups in cloud for user")
 
+            // Track which cloud groups we've processed
+            val processedCloudGroupIds = mutableSetOf<Long>()
+
+            // Process cloud groups - update existing or insert new
             for (document in groupsQuerySnapshot.documents) {
-                val group = document.toObject<Group>()
-                if (group != null) {
-                    // Check if group already exists in local DB
-                    val existingGroup = groupDao.getGroupById(group.id)
-                    if (existingGroup != null) {
-                        // Update existing group
-                        Log.d(TAG, "Updating existing group: ${group.name}")
-                        groupDao.updateGroup(group)
+                val cloudGroup = document.toObject<Group>()
+                if (cloudGroup != null) {
+                    processedCloudGroupIds.add(cloudGroup.id)
+
+                    // Update or insert group
+                    if (cloudGroup.id in localGroupIds) {
+                        Log.d(TAG, "Updating existing group: ${cloudGroup.name}")
+                        groupDao.updateGroup(cloudGroup)
                     } else {
-                        // Insert new group
-                        Log.d(TAG, "Inserting new group: ${group.name}")
-                        groupDao.insertGroup(group)
+                        Log.d(TAG, "Inserting new group: ${cloudGroup.name}")
+                        groupDao.insertGroup(cloudGroup)
                     }
                 } else {
                     Log.e(TAG, "Unable to parse group document: ${document.id}")
                 }
             }
 
-            Log.d(TAG, "Group sync completed")
+            // Handle local groups not found in cloud
+            val orphanedGroupIds = localGroupIds - processedCloudGroupIds
+            for (groupId in orphanedGroupIds) {
+                val orphanedGroup = localGroups.find { it.id == groupId } ?: continue
+
+                // Verify if group exists in cloud but user was removed
+                val groupDoc = firestore.collection(COLLECTION_GROUPS)
+                    .document(groupId.toString())
+                    .get()
+                    .await()
+
+                if (!groupDoc.exists()) {
+                    // Group was deleted from Firestore
+                    Log.d(TAG, "Deleting locally orphaned group: ${orphanedGroup.name}")
+                    groupDao.deleteGroup(orphanedGroup)
+                } else {
+                    // Group exists but user might be removed from members
+                    val cloudGroup = groupDoc.toObject<Group>()
+                    if (cloudGroup != null && currentUserId !in cloudGroup.members) {
+                        Log.d(TAG, "User removed from group ${orphanedGroup.name}, deleting locally")
+                        groupDao.deleteGroup(orphanedGroup)
+                    }
+                }
+            }
+
+            Log.d(TAG, "Group sync completed successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing groups from Firestore", e)
         }
