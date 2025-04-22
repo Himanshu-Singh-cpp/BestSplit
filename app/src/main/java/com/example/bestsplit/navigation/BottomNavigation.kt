@@ -23,7 +23,6 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
 
     // Auth screens
     object Login : Screen("login", "Login")
-    object Register : Screen("register", "Register")
     object Splash : Screen("splash", "Splash")
 
     // Add Group screen without an icon since it's not a bottom nav item

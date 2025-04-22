@@ -21,7 +21,6 @@ import com.example.bestsplit.FriendsScreen
 import com.example.bestsplit.GroupsScreen
 import com.example.bestsplit.LoginScreen
 import com.example.bestsplit.MyAccountScreen
-import com.example.bestsplit.RegisterScreen
 import com.example.bestsplit.data.model.AuthState
 import com.example.bestsplit.ui.viewmodel.AuthViewModel
 
@@ -49,16 +48,10 @@ fun AppNavigation(
         composable(Screen.Login.route) {
             LoginScreen(
                 onLoginSuccess = { navController.navigate(Screen.Groups.route) },
-                onNavigateToRegister = { navController.navigate(Screen.Register.route) }
+//                onNavigateToRegister = { navController.navigate(Screen.Register.route) }
             )
         }
 
-        composable(Screen.Register.route) {
-            RegisterScreen(
-                onRegisterSuccess = { navController.navigate(Screen.Groups.route) },
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
 
         // Main app screens
         composable(Screen.Groups.route) {

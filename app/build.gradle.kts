@@ -67,7 +67,7 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
 
     implementation(platform("com.google.firebase:firebase-bom:33.12.0"))
-    implementation("com.google.android.gms:play-services-auth")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
