@@ -1,66 +1,141 @@
 package com.example.bestsplit
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.bestsplit.ui.theme.BestSplitTheme
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.bestsplit.ui.viewmodel.FriendsViewModel
 
 data class Friend(
-    val name: String,
-    val balance: Double // positive: they owe you, negative: you owe them
+    val id: String = "",
+    val name: String = "",
+    val email: String = "",
+    val balance: Double = 0.0 // positive: they owe you, negative: you owe them
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FriendsScreen(modifier: Modifier = Modifier) {
-    Column(modifier = modifier.padding(16.dp)) {
-        Text(
-            text = "Friends",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
+fun FriendsScreen(
+    modifier: Modifier = Modifier,
+    viewModel: FriendsViewModel = viewModel()
+) {
+    val friends by viewModel.friends.collectAsState()
+    var showAddFriendDialog by remember { mutableStateOf(false) }
+    var emailInput by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-        // Sample data - replace with actual data in a real app
-        val friends = listOf(
-            Friend("Alex Smith", 25.50),
-            Friend("Maria Johnson", -12.75),
-            Friend("James Brown", 8.30),
-            Friend("Sarah Wilson", -30.00),
-            Friend("Michael Lee", 15.25)
-        )
+    Scaffold(
+        modifier = modifier,
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showAddFriendDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Add Friend")
+            }
+        }
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+            Text(
+                text = "Friends",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
 
-        FriendsList(friends = friends)
+            FriendsList(friends = friends)
+        }
+
+        // Add Friend Dialog
+        if (showAddFriendDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    showAddFriendDialog = false
+                    errorMessage = null  // Clear error message when dismissing
+                },
+                title = { Text("Add Friend") },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = emailInput,
+                            onValueChange = { emailInput = it },
+                            label = { Text("Email Address") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (errorMessage != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = errorMessage!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (emailInput.isNotBlank()) {
+                            viewModel.addFriend(
+                                emailInput,
+                                onSuccess = {
+                                    emailInput = ""
+                                    errorMessage = null
+                                    showAddFriendDialog = false
+                                },
+                                onError = {
+                                    errorMessage = "User not found or couldn't be added"
+                                }
+                            )
+                        }
+                    }) {
+                        Text("Add")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showAddFriendDialog = false
+                        errorMessage = null  // Clear error message when canceling
+                    }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
     }
 }
 
 @Composable
 fun FriendsList(friends: List<Friend>, modifier: Modifier = Modifier) {
-    LazyColumn(modifier = modifier) {
-        items(friends) { friend ->
-            FriendCard(friend = friend)
+    if (friends.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "No friends added yet",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    } else {
+        LazyColumn(modifier = modifier) {
+            items(friends) { friend ->
+                FriendCard(friend = friend)
+            }
         }
     }
 }
+
+// FriendCard implementation remains the same as your original code
 
 @Composable
 fun FriendCard(friend: Friend, modifier: Modifier = Modifier) {
@@ -133,10 +208,10 @@ fun FriendCard(friend: Friend, modifier: Modifier = Modifier) {
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun FriendsScreenPreview() {
-    BestSplitTheme {
-        FriendsScreen()
-    }
-}
+//@Preview(showBackground = true)
+//@Composable
+//fun FriendsScreenPreview() {
+//    BestSplitTheme {
+//        FriendsScreen()
+//    }
+//}

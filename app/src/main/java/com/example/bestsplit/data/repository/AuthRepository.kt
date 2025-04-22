@@ -6,6 +6,8 @@ import com.example.bestsplit.data.model.AuthState
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.tasks.await
@@ -61,18 +63,44 @@ class AuthRepository {
         return auth.currentUser
     }
 
+    // app/src/main/java/com/example/bestsplit/data/repository/AuthRepository.kt
+
     fun signInWithCredential(
         credential: AuthCredential,
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
-        auth.signInWithCredential(credential)
+        FirebaseAuth.getInstance().signInWithCredential(credential)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
+                    // Save user data to Firestore
+                    saveUserToFirestore(task.result?.user)
                     onSuccess()
                 } else {
                     onError(task.exception?.message ?: "Authentication failed")
                 }
             }
+    }
+
+    private fun saveUserToFirestore(user: FirebaseUser?) {
+        user?.let {
+            val userData = hashMapOf(
+                "name" to (it.displayName ?: "User"),
+                "email" to (it.email ?: ""),
+                "photoUrl" to (it.photoUrl?.toString() ?: "")
+            )
+
+            Log.d("AuthRepository", "Saving user to Firestore: ${it.uid}, email: ${it.email}")
+
+            FirebaseFirestore.getInstance().collection("users")
+                .document(it.uid)
+                .set(userData, SetOptions.merge())
+                .addOnSuccessListener {
+                    Log.d("AuthRepository", "User data successfully saved to Firestore")
+                }
+                .addOnFailureListener { e ->
+                    Log.e("AuthRepository", "Error saving user data", e)
+                }
+        }
     }
 }
