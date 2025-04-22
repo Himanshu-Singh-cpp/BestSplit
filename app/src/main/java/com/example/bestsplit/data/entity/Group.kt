@@ -8,12 +8,13 @@ import org.json.JSONObject
 @Entity(tableName = "groups")
 data class Group(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val name: String,
-    val description: String,
+    val name: String = "", // Added default value
+    val description: String = "", // Added default value
     val createdAt: Long = System.currentTimeMillis(),
     val createdBy: String = "", // User ID of creator
     val members: List<String> = listOf() // List of user IDs
 ) {
+    // Keep existing methods
     fun toJson(): String {
         return "{\"id\":$id,\"name\":\"$name\",\"description\":\"$description\",\"createdAt\":$createdAt}"
     }
