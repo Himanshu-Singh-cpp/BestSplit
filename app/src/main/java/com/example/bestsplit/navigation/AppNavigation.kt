@@ -22,7 +22,11 @@ import com.example.bestsplit.GroupsScreen
 import com.example.bestsplit.LoginScreen
 import com.example.bestsplit.MyAccountScreen
 import com.example.bestsplit.data.model.AuthState
+import com.example.bestsplit.GroupDetailsScreen
 import com.example.bestsplit.ui.viewmodel.AuthViewModel
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+
 
 // Remove this sealed class as it's already defined in BottomNavigation.kt
 // Use the imported Screen class instead
@@ -52,11 +56,24 @@ fun AppNavigation(
             )
         }
 
-
-        // Main app screens
         composable(Screen.Groups.route) {
             GroupsScreen(
-                onNavigateToAddGroup = { navController.navigate(Screen.AddGroup.route) }
+                onNavigateToAddGroup = { navController.navigate(Screen.AddGroup.route) },
+                onNavigateToGroupDetails = { groupId ->
+                    navController.navigate("group_details/$groupId")
+                }
+            )
+        }
+
+        // Add GroupDetails route with parameter
+        composable(
+            route = "group_details/{groupId}",
+            arguments = listOf(navArgument("groupId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getLong("groupId") ?: 0L
+            GroupDetailsScreen(
+                groupId = groupId,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 

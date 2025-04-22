@@ -2,6 +2,7 @@ package com.example.bestsplit
 
 import android.util.Log
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -44,7 +45,8 @@ import java.util.Locale
 fun GroupsScreen(
     modifier: Modifier = Modifier,
     viewModel: GroupViewModel = viewModel(),
-    onNavigateToAddGroup: () -> Unit = {}
+    onNavigateToAddGroup: () -> Unit = {},
+    onNavigateToGroupDetails: (Long) -> Unit = {}
 ) {
     // Collect groups from the database
     val groups by viewModel.allGroups.collectAsState(initial = emptyList())
@@ -80,7 +82,12 @@ fun GroupsScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier.padding(16.dp)
                 )
-                GroupList(groups = groups)
+                GroupList(
+                    groups = groups,
+                    onGroupClick = { group ->
+                        onNavigateToGroupDetails(group.id)
+                    }
+                )
             }
         }
 
@@ -102,23 +109,35 @@ fun GroupsScreen(
 }
 
 @Composable
-fun GroupList(groups: List<Group>, modifier: Modifier = Modifier) {
+fun GroupList(
+    groups: List<Group>,
+    onGroupClick: (Group) -> Unit,
+    modifier: Modifier = Modifier
+) {
     LazyColumn(modifier = modifier) {
         items(groups) { group ->
-            GroupCard(group = group)
+            GroupCard(
+                group = group,
+                onClick = { onGroupClick(group) }
+            )
         }
     }
 }
 
 @Composable
-fun GroupCard(group: Group, modifier: Modifier = Modifier) {
+fun GroupCard(
+    group: Group,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     val formattedDate = dateFormat.format(Date(group.createdAt))
 
     Card(
         modifier = modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .clickable { onClick() },  // Add clickable modifier
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
