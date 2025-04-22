@@ -5,12 +5,18 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
+import com.example.bestsplit.data.dao.ExpenseDao
 import com.example.bestsplit.data.dao.GroupDao
+import com.example.bestsplit.data.entity.Expense
 import com.example.bestsplit.data.entity.Group
 
-@Database(entities = [Group::class], version = 1, exportSchema = false)
+
+@Database(entities = [Group::class, Expense::class], version = 1, exportSchema = false)
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun groupDao(): GroupDao
+    abstract fun expenseDao(): ExpenseDao
 
     companion object {
         @Volatile

@@ -21,6 +21,11 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object Account : Screen("account", "Account", Icons.Default.AccountCircle)
     object Activity : Screen("activity", "Activity", Icons.Default.List)
 
+    // Auth screens
+    object Login : Screen("login", "Login")
+    object Register : Screen("register", "Register")
+    object Splash : Screen("splash", "Splash")
+
     // Add Group screen without an icon since it's not a bottom nav item
     object AddGroup : Screen("add_group", "Add Group")
 }

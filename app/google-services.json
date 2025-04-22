@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "432600577417",
+    "project_id": "best-split",
+    "storage_bucket": "best-split.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:432600577417:android:7cc6b73fce2dd264259d58",
+        "android_client_info": {
+          "package_name": "com.example.bestsplit"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "432600577417-a4ha6ui3bl61l4vabl5gdl0665nfvl51.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.bestsplit",
+            "certificate_hash": "d26dd8e1b15a9ff8ad2e72edb0225d49021ae3a6"
+          }
+        },
+        {
+          "client_id": "432600577417-5vb0g3qlufekcb4aqt5k6d560p6fls5r.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBxWSWguvUIJQ0U9_st-oLGRvTBfrH1pA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "432600577417-5vb0g3qlufekcb4aqt5k6d560p6fls5r.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
