@@ -29,10 +29,6 @@ class GroupViewModel(application: Application) : AndroidViewModel(application) {
         friendsRepository = FriendsRepository()
         allGroups = repository.allGroups
 
-        // Sync groups from cloud when viewmodel initializes
-        viewModelScope.launch {
-            repository.syncFromCloud()
-        }
     }
 
     fun insertGroup(name: String, description: String, members: List<String> = emptyList()) {
