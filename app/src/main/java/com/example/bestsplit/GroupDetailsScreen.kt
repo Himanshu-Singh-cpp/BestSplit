@@ -103,22 +103,6 @@ fun GroupDetailsScreen(
     // Calculated balances
     var balances by remember { mutableStateOf<Map<String, Map<String, Double>>>(emptyMap()) }
 
-    // Track if we're currently syncing expenses
-    var isSyncing by remember { mutableStateOf(false) }
-
-    // Function to sync expenses with loading indicator
-    val syncExpenses = {
-        scope.launch {
-            isSyncing = true
-            try {
-                expenseViewModel.syncExpensesForGroup(groupId)
-                delay(1000)
-            } finally {
-                isSyncing = false
-            }
-        }
-    }
-
     // Load group details
     LaunchedEffect(groupId) {
         scope.launch {
@@ -247,8 +231,6 @@ fun GroupDetailsScreen(
                         selected = selectedTabIndex == 0,
                         onClick = {
                             selectedTabIndex = 0
-                            // Sync expenses when tab is selected
-                            syncExpenses()
                         },
                         text = { Text("Expenses") }
                     )
@@ -265,7 +247,7 @@ fun GroupDetailsScreen(
                 }
 
                 when (selectedTabIndex) {
-                    0 -> ExpensesTab(sortedExpenses, members, isSyncing)
+                    0 -> ExpensesTab(sortedExpenses, members)  // Remove the isSyncing parameter
                     1 -> BalancesTab(balances, members)
                     2 -> MembersTab(members)
                 }
@@ -276,7 +258,7 @@ fun GroupDetailsScreen(
 
 @Composable
 @OptIn(ExperimentalMaterialApi::class)
-fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>, isSyncing: Boolean) {
+fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>) {
     val memberMap = remember(members) {
         members.associateBy { it.id }
     }
@@ -358,8 +340,7 @@ fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>, isS
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
-            // Loading indicator
-            if (isSyncing) {
+            if (refreshing) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

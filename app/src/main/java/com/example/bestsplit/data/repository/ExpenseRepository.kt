@@ -141,14 +141,9 @@ class ExpenseRepository(
             TAG,
             "Adding expense to Firestore: ID=$id, Group=${expense.groupId}, Amount=${expense.amount}, Description='${expense.description}'"
         )
-        Log.d(
-            TAG,
-            "PaidFor data: ${expense.paidFor.entries.joinToString { "${it.key}=${it.value}" }}"
-        )
 
         // Then push to Firebase with ID - use the correct path for expenses
         try {
-            // Use an explicit map to ensure data is properly structured for Firestore
             val expenseData = mapOf(
                 "id" to id,
                 "groupId" to expense.groupId,
@@ -168,17 +163,6 @@ class ExpenseRepository(
                 .await()
 
             Log.d(TAG, "Expense saved to Firestore with ID: $id in group ${expense.groupId}")
-
-            // Also save to old collection for backward compatibility
-            firestore.collection(OLD_COLLECTION_EXPENSES)
-                .document(id.toString())
-                .set(expenseData)
-                .await()
-
-            Log.d(TAG, "Expense also saved to old collection for compatibility")
-
-            // Force a sync after adding a new expense
-            syncExpensesForGroup(expense.groupId)
         } catch (e: Exception) {
             Log.e(TAG, "Error saving expense to Firestore", e)
 
@@ -186,7 +170,6 @@ class ExpenseRepository(
             applicationScope.launch {
                 delay(1000)
                 try {
-                    // Retry with the same explicit data structure
                     val retryExpenseData = mapOf(
                         "id" to id,
                         "groupId" to expense.groupId,
@@ -197,16 +180,10 @@ class ExpenseRepository(
                         "createdAt" to expense.createdAt
                     )
 
-                    // First to the group subcollection
+                    // Just save to the group subcollection
                     firestore.collection(COLLECTION_GROUPS)
                         .document(expense.groupId.toString())
                         .collection(SUBCOLLECTION_EXPENSES)
-                        .document(id.toString())
-                        .set(retryExpenseData)
-                        .await()
-
-                    // Then to the old collection
-                    firestore.collection(OLD_COLLECTION_EXPENSES)
                         .document(id.toString())
                         .set(retryExpenseData)
                         .await()
