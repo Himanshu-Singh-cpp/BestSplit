@@ -81,31 +81,10 @@ fun GroupDetailsScreen(
     var members by remember { mutableStateOf<List<UserRepository.User>>(emptyList()) }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
-    // Force refresh periodically
-    var forceRefresh by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(30000) // 30 seconds refresh interval
-            forceRefresh++
-            Log.d("GroupDetailsScreen", "Triggering periodic refresh")
-        }
-    }
-
     // Initial sync on screen load
     LaunchedEffect(Unit) {
-        expenseViewModel.syncExpensesForGroup(groupId)
-
-        // Enable aggressive syncing with error handling
         try {
-            Log.d("GroupDetailsScreen", "Performing aggressive initial sync")
-
-            // Multiple sync attempts to ensure we get the data
-            repeat(3) {
-                expenseViewModel.syncExpensesForGroup(groupId)
-                delay(500)
-            }
-
-            // Try to force a fresh query
+            Log.d("GroupDetailsScreen", "Performing initial sync")
             expenseViewModel.syncExpensesForGroup(groupId)
         } catch (e: Exception) {
             Log.e("GroupDetailsScreen", "Error during initial sync", e)
@@ -141,15 +120,11 @@ fun GroupDetailsScreen(
     }
 
     // Load group details
-    LaunchedEffect(groupId, forceRefresh) {
+    LaunchedEffect(groupId) {
         scope.launch {
             try {
-                // Sync from cloud first
-                expenseViewModel.syncExpensesForGroup(groupId)
+                // Sync from cloud once
                 groupViewModel.refreshGroups()
-
-                // Wait a moment to ensure sync completes
-                delay(300)
 
                 // Then fetch the group
                 group = groupViewModel.getGroupById(groupId)
@@ -185,20 +160,9 @@ fun GroupDetailsScreen(
 
             if (group != null) {
                 try {
-                    // Re-sync expenses to make sure we have the latest data
-                    expenseViewModel.syncExpensesForGroup(groupId)
-
-                    // Short delay to ensure sync is complete
-                    delay(300)
-
-                    // Try syncing again to be sure
-                    expenseViewModel.syncExpensesForGroup(groupId)
-                    delay(200)
-
-                    // Recalculate balances
+                    // Recalculate balances without additional syncs
                     balances = expenseViewModel.calculateBalances(groupId, group!!.members)
                 } catch (e: Exception) {
-                    // Log error but don't crash
                     Log.e("GroupDetailsScreen", "Error calculating balances", e)
                 }
             }
@@ -487,7 +451,7 @@ fun ExpenseItem(expense: Expense, memberMap: Map<String, UserRepository.User>) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = memberName + if (isCurrentUser) " (you)" else "",
+                            text = memberName,
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = if (isCurrentUser) FontWeight.Medium else FontWeight.Normal
