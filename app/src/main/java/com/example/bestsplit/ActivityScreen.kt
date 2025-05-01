@@ -1,10 +1,12 @@
 package com.example.bestsplit
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,50 +19,77 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bestsplit.ui.theme.BestSplitTheme
+import com.example.bestsplit.ui.viewmodel.ActivityItem
+import com.example.bestsplit.ui.viewmodel.ActivityType
+import com.example.bestsplit.ui.viewmodel.ActivityViewModel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class Transaction(
-    val id: String,
-    val title: String,
-    val amount: Double,
-    val date: Date,
-    val participants: List<String>,
-    val type: TransactionType
-)
-
-enum class TransactionType {
-    EXPENSE, PAYMENT, SETTLEMENT, YOUR_PAYMENT
-}
-
 @Composable
-fun ActivityScreen(modifier: Modifier = Modifier) {
+fun ActivityScreen(
+    modifier: Modifier = Modifier,
+    viewModel: ActivityViewModel = viewModel(),
+    onNavigateToGroupDetails: (Long) -> Unit = {}
+) {
+    val activities by viewModel.activities.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val scope = rememberCoroutineScope()
+
     Column(modifier = modifier.padding(16.dp)) {
-        Text(
-            text = "Recent Activity",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "Recent Activity",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f)
+            )
+
+            // Add refresh button
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        viewModel.refreshActivities()
+                    }
+                },
+                enabled = !isLoading
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = "Refresh",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
 
         Text(
             text = "Your transaction history",
@@ -75,79 +104,62 @@ fun ActivityScreen(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // Sample data - replace with actual data in a real app
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val transactions = listOf(
-            Transaction(
-                "t1",
-                "Dinner at Restaurant",
-                45.80,
-                dateFormat.parse("2023-06-15") ?: Date(),
-                listOf("Alex", "Maria", "You"),
-                TransactionType.EXPENSE
-            ),
-            Transaction(
-                "t2",
-                "Alex paid you",
-                25.50,
-                dateFormat.parse("2023-06-10") ?: Date(),
-                listOf("Alex", "You"),
-                TransactionType.PAYMENT
-            ),
-            // New transaction where you paid
-            Transaction(
-                "t3",
-                "Weekend Trip",
-                120.00,
-                dateFormat.parse("2023-06-08") ?: Date(),
-                listOf("James", "Sarah", "You"),
-                TransactionType.YOUR_PAYMENT
-            ),
-            Transaction(
-                "t4",
-                "Movie Tickets",
-                32.00,
-                dateFormat.parse("2023-06-05") ?: Date(),
-                listOf("James", "Sarah", "You"),
-                TransactionType.EXPENSE
-            ),
-            Transaction(
-                "t5",
-                "You settled with Maria",
-                12.75,
-                dateFormat.parse("2023-06-01") ?: Date(),
-                listOf("Maria", "You"),
-                TransactionType.SETTLEMENT
-            ),
-            Transaction(
-                "t6",
-                "Groceries",
-                78.35,
-                dateFormat.parse("2023-05-28") ?: Date(),
-                listOf("Michael", "Sarah", "You"),
-                TransactionType.EXPENSE
+        if (isLoading && activities.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (activities.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No activity yet. Create an expense to see it here.",
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+        } else {
+            ActivityList(
+                activities = activities,
+                onActivityClick = { activity ->
+                    onNavigateToGroupDetails(activity.groupId)
+                }
             )
-        )
-
-        TransactionList(transactions = transactions)
-    }
-}
-
-@Composable
-fun TransactionList(transactions: List<Transaction>, modifier: Modifier = Modifier) {
-    LazyColumn(modifier = modifier) {
-        items(transactions) { transaction ->
-            TransactionCard(transaction = transaction)
         }
     }
 }
 
 @Composable
-fun TransactionCard(transaction: Transaction, modifier: Modifier = Modifier) {
+fun ActivityList(
+    activities: List<ActivityItem>,
+    modifier: Modifier = Modifier,
+    onActivityClick: (ActivityItem) -> Unit
+) {
+    LazyColumn(modifier = modifier) {
+        items(activities) { activity ->
+            ActivityCard(
+                activity = activity,
+                onClick = { onActivityClick(activity) }
+            )
+        }
+    }
+}
+
+@Composable
+fun ActivityCard(
+    activity: ActivityItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Card(
         modifier = modifier
             .padding(vertical = 8.dp)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
@@ -163,24 +175,14 @@ fun TransactionCard(transaction: Transaction, modifier: Modifier = Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                val (icon, bgColor, contentColor) = when (transaction.type) {
-                    TransactionType.EXPENSE -> Triple(
+                val (icon, bgColor, contentColor) = when (activity.type) {
+                    ActivityType.EXPENSE -> Triple(
                         Icons.Default.ArrowForward,
                         MaterialTheme.colorScheme.errorContainer,
                         MaterialTheme.colorScheme.onErrorContainer
                     )
-                    TransactionType.PAYMENT -> Triple(
+                    ActivityType.YOUR_PAYMENT -> Triple(
                         Icons.Default.ArrowBack,
-                        MaterialTheme.colorScheme.primaryContainer,
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    TransactionType.SETTLEMENT -> Triple(
-                        Icons.Default.Done,
-                        MaterialTheme.colorScheme.secondaryContainer,
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                    TransactionType.YOUR_PAYMENT -> Triple(
-                        Icons.Default.ArrowForward,
                         MaterialTheme.colorScheme.tertiaryContainer,
                         MaterialTheme.colorScheme.onTertiaryContainer
                     )
@@ -193,28 +195,28 @@ fun TransactionCard(transaction: Transaction, modifier: Modifier = Modifier) {
                 // Transaction details
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = transaction.title,
+                        text = activity.title,
                         style = MaterialTheme.typography.titleMedium
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
 
+                    // Group name
+                    Text(
+                        text = "in ${activity.groupName}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
                     // Payment details
-                    val detailText = when (transaction.type) {
-                        TransactionType.EXPENSE -> {
-                            val payer = transaction.participants.firstOrNull { it != "You" } ?: "Someone"
-                            "$payer paid (\$${String.format("%.2f", transaction.amount)})"
+                    val detailText = when (activity.type) {
+                        ActivityType.EXPENSE -> {
+                            "${activity.payerName} paid"
                         }
-                        TransactionType.PAYMENT -> {
-                            val participant = transaction.participants.firstOrNull { it != "You" } ?: "Someone"
-                            "$participant paid you"
-                        }
-                        TransactionType.SETTLEMENT -> {
-                            val participant = transaction.participants.firstOrNull { it != "You" } ?: "Someone"
-                            "You paid $participant"
-                        }
-                        TransactionType.YOUR_PAYMENT -> {
-                            "You paid (\$${String.format("%.2f", transaction.amount)})"
+                        ActivityType.YOUR_PAYMENT -> {
+                            "You paid"
                         }
                     }
 
@@ -229,18 +231,16 @@ fun TransactionCard(transaction: Transaction, modifier: Modifier = Modifier) {
                     // Show date
                     val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
                     Text(
-                        text = dateFormat.format(transaction.date),
+                        text = dateFormat.format(activity.date),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                // Payment amounts with revised display
+                // Payment amounts
                 Column(horizontalAlignment = Alignment.End) {
-                    when (transaction.type) {
-                        TransactionType.EXPENSE -> {
-                            val yourShare = transaction.amount / transaction.participants.size
-
+                    when (activity.type) {
+                        ActivityType.EXPENSE -> {
                             Text(
                                 text = "You owe",
                                 style = MaterialTheme.typography.bodySmall,
@@ -248,44 +248,13 @@ fun TransactionCard(transaction: Transaction, modifier: Modifier = Modifier) {
                             )
 
                             Text(
-                                text = "$${String.format("%.2f", yourShare)}",
+                                text = "$${String.format("%.2f", activity.amount)}",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.error,
                                 fontWeight = FontWeight.Medium
                             )
                         }
-                        TransactionType.PAYMENT -> {
-                            Text(
-                                text = "You received",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Text(
-                                text = "+$${String.format("%.2f", transaction.amount)}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                        TransactionType.SETTLEMENT -> {
-                            Text(
-                                text = "You paid",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Text(
-                                text = "-$${String.format("%.2f", transaction.amount)}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.secondary,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                        TransactionType.YOUR_PAYMENT -> {
-                            val eachShare = transaction.amount / transaction.participants.size
-                            val othersOwe = transaction.amount - eachShare
-
+                        ActivityType.YOUR_PAYMENT -> {
                             Text(
                                 text = "Others owe you",
                                 style = MaterialTheme.typography.bodySmall,
@@ -293,7 +262,7 @@ fun TransactionCard(transaction: Transaction, modifier: Modifier = Modifier) {
                             )
 
                             Text(
-                                text = "$${String.format("%.2f", othersOwe)}",
+                                text = "$${String.format("%.2f", activity.amount)}",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.tertiary,
                                 fontWeight = FontWeight.Medium
@@ -301,22 +270,9 @@ fun TransactionCard(transaction: Transaction, modifier: Modifier = Modifier) {
                         }
                     }
 
-                    // Show participant list
+                    // Show participant count
                     Spacer(modifier = Modifier.height(4.dp))
-
-                    // Format participants text based on transaction type
-                    val participantsText = when (transaction.type) {
-                        TransactionType.YOUR_PAYMENT -> {
-                            val otherParticipants = transaction.participants.filterNot { it == "You" }
-                            if (otherParticipants.size <= 2) {
-                                "With ${otherParticipants.joinToString(", ")}"
-                            } else {
-                                "With ${otherParticipants.size} people"
-                            }
-                        }
-                        else -> "${transaction.participants.size} people"
-                    }
-
+                    val participantsText = "${activity.participants.size} people"
                     Text(
                         text = participantsText,
                         style = MaterialTheme.typography.bodySmall,
@@ -326,13 +282,6 @@ fun TransactionCard(transaction: Transaction, modifier: Modifier = Modifier) {
             }
         }
     }
-}
-
-// Helper function to calculate your share in an expense
-private fun calculateShare(transaction: Transaction): String {
-    val participants = transaction.participants
-    val yourShare = transaction.amount / participants.size
-    return String.format("%.2f", yourShare)
 }
 
 @Composable

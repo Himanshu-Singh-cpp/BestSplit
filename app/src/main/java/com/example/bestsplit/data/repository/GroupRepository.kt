@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import androidx.sqlite.db.SimpleSQLiteQuery
 
 class GroupRepository(
     private val groupDao: GroupDao,
@@ -22,15 +23,42 @@ class GroupRepository(
 ) {
     private val TAG = "GroupRepository"
     private val COLLECTION_GROUPS = "groups"
-    private val COLLECTION_USER_GROUPS = "groups" // changed to match the actual implementation
+    private val COLLECTION_USER_GROUPS = "groups"
     private val applicationScope = CoroutineScope(Dispatchers.IO)
 
     val allGroups: Flow<List<Group>> = groupDao.getAllGroups()
 
-//    init {
-//        // Register a lifecycle callback to sync when app comes to foreground
-//        registerActivityLifecycleCallbacks()
-//    }
+    // Flag to track if initial sync has been performed
+    private var initialSyncPerformed = false
+
+    // Public method to perform initial sync with more aggressiveness
+    fun performInitialSync() {
+        if (initialSyncPerformed) return
+
+        val userId = auth.currentUser?.uid
+        if (userId.isNullOrEmpty()) {
+            Log.e(TAG, "Cannot initialize group repository - no authenticated user")
+            return
+        }
+
+        Log.d(TAG, "Performing initial group sync for user: $userId")
+
+        applicationScope.launch {
+            try {
+                // Force a full sync from cloud
+                val success = syncFromCloud()
+
+                if (success) {
+                    Log.d(TAG, "Initial group sync completed successfully")
+                    initialSyncPerformed = true
+                } else {
+                    Log.e(TAG, "Initial group sync failed")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during initial group sync", e)
+            }
+        }
+    }
 
     private fun registerActivityLifecycleCallbacks() {
         val application = Application.getProcessName()?.let {
@@ -186,9 +214,20 @@ class GroupRepository(
         return groupDao.getGroupById(id)
     }
 
-    // Sync user's groups from Firebase
-    suspend fun syncFromCloud() {
-        val currentUserId = auth.currentUser?.uid ?: return
+    fun getGroupsWithMember(userId: String): Flow<List<Group>> {
+        val query = SimpleSQLiteQuery(
+            "SELECT * FROM `groups` WHERE members LIKE ?",
+            arrayOf("%\"$userId\"%")
+        )
+        return groupDao.getGroupsWithMemberRaw(query)
+    }
+
+    suspend fun getAllGroupsSync(): List<Group> {
+        return groupDao.getAllGroupsSync()
+    }
+
+    suspend fun syncFromCloud(): Boolean {
+        val currentUserId = auth.currentUser?.uid ?: return false
         Log.d(TAG, "Starting group sync for user: $currentUserId")
 
         try {
@@ -252,8 +291,10 @@ class GroupRepository(
             }
 
             Log.d(TAG, "Group sync completed successfully")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing groups from Firestore", e)
+            return false
         }
     }
 

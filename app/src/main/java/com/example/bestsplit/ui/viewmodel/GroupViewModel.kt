@@ -85,4 +85,10 @@ class GroupViewModel(application: Application) : AndroidViewModel(application) {
             repository.syncFromCloud()
         }
     }
+
+    // Perform initial sync with more robustness
+    fun initializeRepository() {
+        Log.d("GroupViewModel", "Initializing group repository")
+        repository.performInitialSync()
+    }
 }

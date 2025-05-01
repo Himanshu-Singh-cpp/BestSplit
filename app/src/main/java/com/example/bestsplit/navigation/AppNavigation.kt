@@ -7,8 +7,12 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,6 +30,10 @@ import com.example.bestsplit.GroupDetailsScreen
 import com.example.bestsplit.ui.viewmodel.AuthViewModel
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import com.example.bestsplit.AddExpenseScreen
+import com.example.bestsplit.data.repository.UserRepository
+import com.example.bestsplit.ui.viewmodel.GroupViewModel
+import kotlinx.coroutines.launch
 
 
 // Remove this sealed class as it's already defined in BottomNavigation.kt
@@ -73,6 +81,43 @@ fun AppNavigation(
             val groupId = backStackEntry.arguments?.getLong("groupId") ?: 0L
             GroupDetailsScreen(
                 groupId = groupId,
+                onNavigateBack = { navController.popBackStack() },
+                onAddExpense = { gId, members ->
+                    navController.navigate("add_expense/$gId")
+                }
+            )
+        }
+
+        // Add Expense screen
+        composable(
+            route = "add_expense/{groupId}",
+            arguments = listOf(navArgument("groupId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getLong("groupId") ?: 0L
+
+            // Get the members list from the previous screen or fetch it again
+            val scope = rememberCoroutineScope()
+            val groupViewModel: GroupViewModel = viewModel()
+            val members = remember { mutableStateListOf<UserRepository.User>() }
+
+            LaunchedEffect(groupId) {
+                scope.launch {
+                    val group = groupViewModel.getGroupById(groupId)
+                    if (group != null) {
+                        // Load member details
+                        val userRepo = UserRepository()
+                        val memberDetails = group.members.mapNotNull { memberId ->
+                            userRepo.getUserById(memberId)
+                        }
+                        members.clear()
+                        members.addAll(memberDetails)
+                    }
+                }
+            }
+
+            AddExpenseScreen(
+                groupId = groupId,
+                members = members,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -88,7 +133,11 @@ fun AppNavigation(
             FriendsScreen()
         }
         composable(Screen.Activity.route) {
-            ActivityScreen()
+            ActivityScreen(
+                onNavigateToGroupDetails = { groupId ->
+                    navController.navigate("group_details/$groupId")
+                }
+            )
         }
         composable(Screen.Account.route) {
             MyAccountScreen()

@@ -26,8 +26,9 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object Splash : Screen("splash", "Splash")
 
     // Add Group screen without an icon since it's not a bottom nav item
-    object AddGroup : Screen("add_group", "Add Group") // Add this to the Screen sealed class in BottomNavigation.kt
+    object AddGroup : Screen("add_group", "Add Group")
     object GroupDetails : Screen("group_details/{groupId}", "Group Details")
+    object AddExpense : Screen("add_expense/{groupId}", "Add Expense")
 }
 
 @Composable

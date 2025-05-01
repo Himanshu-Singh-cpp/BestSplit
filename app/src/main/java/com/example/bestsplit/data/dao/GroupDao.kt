@@ -5,7 +5,9 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Update
+import androidx.sqlite.db.SupportSQLiteQuery
 import com.example.bestsplit.data.entity.Group
 import kotlinx.coroutines.flow.Flow
 
@@ -20,12 +22,15 @@ interface GroupDao {
     @Delete
     suspend fun deleteGroup(group: Group)
 
-    @Query("SELECT * FROM groups")
+    @Query("SELECT * FROM `groups`")
     suspend fun getAllGroupsSync(): List<Group>
 
-    @Query("SELECT * FROM groups ORDER BY createdAt DESC")
+    @Query("SELECT * FROM `groups` ORDER BY createdAt DESC")
     fun getAllGroups(): Flow<List<Group>>
 
-    @Query("SELECT * FROM groups WHERE id = :groupId")
+    @Query("SELECT * FROM `groups` WHERE id = :groupId")
     suspend fun getGroupById(groupId: Long): Group?
+
+    @RawQuery(observedEntities = [Group::class])
+    fun getGroupsWithMemberRaw(query: SupportSQLiteQuery): Flow<List<Group>>
 }
