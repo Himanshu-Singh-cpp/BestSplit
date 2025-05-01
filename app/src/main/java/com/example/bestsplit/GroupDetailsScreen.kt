@@ -21,6 +21,9 @@ import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -59,6 +62,7 @@ import com.example.bestsplit.data.entity.Expense
 import com.example.bestsplit.data.entity.Group
 import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.ui.viewmodel.ExpenseViewModel
+import com.example.bestsplit.ui.viewmodel.ExpenseViewModel.ExpenseDeletionState
 import com.example.bestsplit.ui.viewmodel.GroupViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -74,7 +78,8 @@ fun GroupDetailsScreen(
     groupViewModel: GroupViewModel = viewModel(),
     expenseViewModel: ExpenseViewModel = viewModel(),
     onNavigateBack: () -> Unit = {},
-    onAddExpense: (Long, List<UserRepository.User>) -> Unit = { _, _ -> }
+    onAddExpense: (Long, List<UserRepository.User>) -> Unit = { _, _ -> },
+    onEditExpense: (Expense, List<UserRepository.User>) -> Unit = { _, _ -> }
 ) {
     val scope = rememberCoroutineScope()
     var group by remember { mutableStateOf<Group?>(null) }
@@ -115,6 +120,32 @@ fun GroupDetailsScreen(
     // Observe expenses for this group
     val expenses by expenseViewModel.getExpensesForGroup(groupId)
         .collectAsState(initial = emptyList())
+
+    // Observe delete state
+    val deletionState by expenseViewModel.expenseDeletionState.collectAsState()
+
+    // Reset deletion state when leaving the screen
+    LaunchedEffect(Unit) {
+        expenseViewModel.resetExpenseDeletionState()
+    }
+
+    // Handle deletion state changes
+    LaunchedEffect(deletionState) {
+        when (deletionState) {
+            is ExpenseDeletionState.Success -> {
+                // Show success message or refresh data
+                expenseViewModel.resetExpenseDeletionState()
+                expenseViewModel.syncExpensesForGroup(groupId)
+            }
+
+            is ExpenseDeletionState.Error -> {
+                // Could show error message here
+                expenseViewModel.resetExpenseDeletionState()
+            }
+
+            else -> {}
+        }
+    }
 
     // Sort expenses by date (most recent first)
     val sortedExpenses = remember(expenses) {
@@ -301,7 +332,13 @@ fun GroupDetailsScreen(
                 }
 
                 when (selectedTabIndex) {
-                    0 -> ExpensesTab(sortedExpenses, members, isSyncing)
+                    0 -> ExpensesTab(
+                        expenses = sortedExpenses,
+                        members = members,
+                        isSyncing = isSyncing,
+                        expenseViewModel = expenseViewModel,
+                        onEditExpense = onEditExpense
+                    )
                     1 -> BalancesTab(balances, members)
                     2 -> MembersTab(members)
                 }
@@ -312,7 +349,13 @@ fun GroupDetailsScreen(
 
 @Composable
 @OptIn(ExperimentalMaterialApi::class)
-fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>, isSyncing: Boolean) {
+fun ExpensesTab(
+    expenses: List<Expense>,
+    members: List<UserRepository.User>,
+    isSyncing: Boolean,
+    expenseViewModel: ExpenseViewModel,
+    onEditExpense: (Expense, List<UserRepository.User>) -> Unit
+) {
     val memberMap = remember(members) {
         members.associateBy { it.id }
     }
@@ -331,7 +374,7 @@ fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>, isS
                 // Find the group ID from the first expense (if any)
                 val groupId = expenses.firstOrNull()?.groupId
                 if (groupId != null) {
-                    viewModel.syncExpensesForGroup(groupId)
+                    expenseViewModel.syncExpensesForGroup(groupId)
                     delay(1000) // Give some time for the sync to complete
                 }
 
@@ -383,7 +426,13 @@ fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>, isS
                     .padding(horizontal = 16.dp)
             ) {
                 items(expenses) { expense ->
-                    ExpenseItem(expense, memberMap)
+                    ExpenseItem(
+                        expense = expense,
+                        memberMap = memberMap,
+                        expenseViewModel = expenseViewModel,
+                        members = members,
+                        onEditExpense = onEditExpense
+                    )
                 }
             }
 
@@ -410,7 +459,13 @@ fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>, isS
 }
 
 @Composable
-fun ExpenseItem(expense: Expense, memberMap: Map<String, UserRepository.User>) {
+fun ExpenseItem(
+    expense: Expense,
+    memberMap: Map<String, UserRepository.User>,
+    expenseViewModel: ExpenseViewModel,
+    members: List<UserRepository.User>,
+    onEditExpense: (Expense, List<UserRepository.User>) -> Unit
+) {
     val currencyFormat = remember { NumberFormat.getCurrencyInstance() }
     val payerName = memberMap[expense.paidBy]?.name ?: "Unknown"
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault()) }
@@ -418,6 +473,9 @@ fun ExpenseItem(expense: Expense, memberMap: Map<String, UserRepository.User>) {
 
     // Count how many people are involved in this expense
     val participantCount = expense.paidFor.size
+
+    val scope = rememberCoroutineScope()
+    var expanded by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
@@ -442,8 +500,58 @@ fun ExpenseItem(expense: Expense, memberMap: Map<String, UserRepository.User>) {
                     text = currencyFormat.format(expense.amount),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 8.dp)
                 )
+
+                Box {
+                    IconButton(
+                        onClick = { expanded = true },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Edit") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit"
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onEditExpense(expense, members)
+                            }
+                        )
+
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Delete") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = Color.Red
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                scope.launch {
+                                    expenseViewModel.deleteExpense(expense.id, expense.groupId)
+                                }
+                            }
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(6.dp))

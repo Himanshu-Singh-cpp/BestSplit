@@ -27,9 +27,31 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         data class Error(val message: String) : ExpenseCreationState()
     }
 
+    sealed class ExpenseUpdateState {
+        object Idle : ExpenseUpdateState()
+        object Loading : ExpenseUpdateState()
+        object Success : ExpenseUpdateState()
+        data class Error(val message: String) : ExpenseUpdateState()
+    }
+
+    sealed class ExpenseDeletionState {
+        object Idle : ExpenseDeletionState()
+        object Loading : ExpenseDeletionState()
+        object Success : ExpenseDeletionState()
+        data class Error(val message: String) : ExpenseDeletionState()
+    }
+
     private val _expenseCreationState =
         MutableStateFlow<ExpenseCreationState>(ExpenseCreationState.Idle)
     val expenseCreationState: StateFlow<ExpenseCreationState> = _expenseCreationState.asStateFlow()
+
+    private val _expenseUpdateState =
+        MutableStateFlow<ExpenseUpdateState>(ExpenseUpdateState.Idle)
+    val expenseUpdateState: StateFlow<ExpenseUpdateState> = _expenseUpdateState.asStateFlow()
+
+    private val _expenseDeletionState =
+        MutableStateFlow<ExpenseDeletionState>(ExpenseDeletionState.Idle)
+    val expenseDeletionState: StateFlow<ExpenseDeletionState> = _expenseDeletionState.asStateFlow()
 
     init {
         val expenseDao = AppDatabase.getDatabase(application).expenseDao()
@@ -155,6 +177,52 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         _expenseCreationState.value = ExpenseCreationState.Idle
     }
 
+    fun updateExpense(expense: Expense) {
+        viewModelScope.launch {
+            try {
+                _expenseUpdateState.value = ExpenseUpdateState.Loading
+
+                val success = repository.updateExpense(expense)
+
+                if (success) {
+                    _expenseUpdateState.value = ExpenseUpdateState.Success
+                } else {
+                    _expenseUpdateState.value = ExpenseUpdateState.Error("Failed to update expense")
+                }
+            } catch (e: Exception) {
+                _expenseUpdateState.value = ExpenseUpdateState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    fun deleteExpense(expenseId: Long, groupId: Long) {
+        viewModelScope.launch {
+            try {
+                _expenseDeletionState.value = ExpenseDeletionState.Loading
+
+                val success = repository.deleteExpense(expenseId, groupId)
+
+                if (success) {
+                    _expenseDeletionState.value = ExpenseDeletionState.Success
+                } else {
+                    _expenseDeletionState.value =
+                        ExpenseDeletionState.Error("Failed to delete expense")
+                }
+            } catch (e: Exception) {
+                _expenseDeletionState.value =
+                    ExpenseDeletionState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    fun resetExpenseUpdateState() {
+        _expenseUpdateState.value = ExpenseUpdateState.Idle
+    }
+
+    fun resetExpenseDeletionState() {
+        _expenseDeletionState.value = ExpenseDeletionState.Idle
+    }
+
     // Calculate balances between members in a group based on expenses
     suspend fun calculateBalances(
         groupId: Long,
@@ -263,5 +331,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     // Get user details for display
     suspend fun getUserDetails(userId: String): UserRepository.User? {
         return userRepository.getUserById(userId)
+    }
+
+    suspend fun getExpenseById(expenseId: Long): Expense? {
+        return repository.getExpenseById(expenseId)
     }
 }

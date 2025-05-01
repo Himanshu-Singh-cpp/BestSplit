@@ -137,6 +137,10 @@ class ExpenseRepository(
         return expenseDao.getExpensesForGroupSync(groupId)
     }
 
+    suspend fun getExpenseById(expenseId: Long): Expense? {
+        return expenseDao.getExpenseById(expenseId)
+    }
+
     suspend fun addExpense(expense: Expense): Long {
         // First add to local database
         val id = expenseDao.insertExpense(expense)
@@ -225,6 +229,89 @@ class ExpenseRepository(
         }
 
         return id
+    }
+
+    suspend fun updateExpense(expense: Expense): Boolean {
+        try {
+            // First update local database
+            expenseDao.insertExpense(expense)
+
+            Log.d(
+                TAG,
+                "Updating expense: ID=${expense.id}, Group=${expense.groupId}, Amount=${expense.amount}"
+            )
+
+            // Create explicit map for Firestore
+            val expenseData = mapOf(
+                "id" to expense.id,
+                "groupId" to expense.groupId,
+                "description" to expense.description,
+                "amount" to expense.amount,
+                "paidBy" to expense.paidBy,
+                "paidFor" to expense.paidFor,
+                "createdAt" to expense.createdAt
+            )
+
+            // Update in group subcollection
+            firestore.collection(COLLECTION_GROUPS)
+                .document(expense.groupId.toString())
+                .collection(SUBCOLLECTION_EXPENSES)
+                .document(expense.id.toString())
+                .set(expenseData, SetOptions.merge())
+                .await()
+
+            // Also update in old collection for compatibility
+            firestore.collection(OLD_COLLECTION_EXPENSES)
+                .document(expense.id.toString())
+                .set(expenseData, SetOptions.merge())
+                .await()
+
+            Log.d(TAG, "Successfully updated expense ${expense.id} in Firestore")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating expense ${expense.id}", e)
+            return false
+        }
+    }
+
+    suspend fun deleteExpense(expenseId: Long, groupId: Long): Boolean {
+        try {
+            // Create a minimal expense object with the ID for deletion
+            val expense = Expense(
+                id = expenseId,
+                groupId = groupId,
+                description = "",
+                amount = 0.0,
+                paidBy = "",
+                paidFor = emptyMap(),
+                createdAt = 0L
+            )
+
+            // First delete from local database
+            expenseDao.deleteExpense(expense)
+
+            Log.d(TAG, "Deleting expense: ID=$expenseId from group $groupId")
+
+            // Delete from group subcollection
+            firestore.collection(COLLECTION_GROUPS)
+                .document(groupId.toString())
+                .collection(SUBCOLLECTION_EXPENSES)
+                .document(expenseId.toString())
+                .delete()
+                .await()
+
+            // Also delete from old collection
+            firestore.collection(OLD_COLLECTION_EXPENSES)
+                .document(expenseId.toString())
+                .delete()
+                .await()
+
+            Log.d(TAG, "Successfully deleted expense $expenseId from Firestore")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting expense $expenseId", e)
+            return false
+        }
     }
 
     // Setup real-time sync for a specific group
