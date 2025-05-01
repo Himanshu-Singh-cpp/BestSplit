@@ -4,6 +4,7 @@ package com.example.bestsplit.data.dao
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.Update
@@ -15,6 +16,9 @@ import kotlinx.coroutines.flow.Flow
 interface GroupDao {
     @Insert
     suspend fun insertGroup(group: Group): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGroupWithId(group: Group): Long
 
     @Update
     suspend fun updateGroup(group: Group)

@@ -97,39 +97,42 @@ class GroupRepository(
         // Include creator as a member and add other selected members
         val allMembers = (listOf(currentUserId) + memberIds).distinct()
 
-
         val groupWithMembers = group.copy(
             createdBy = currentUserId,
             members = allMembers
         )
 
-        // Save to local database
-        val id = groupDao.insertGroup(groupWithMembers)
-        val finalGroup = groupWithMembers.copy(id = id)
-
         try {
-            // Create group in Firestore
-            firestore.collection(COLLECTION_GROUPS)
-                .document(id.toString())
-                .set(finalGroup)
-                .await()
+            // First, save to Firestore with a generated ID
+            val firestoreGroupRef = firestore.collection(COLLECTION_GROUPS).document()
+            val firestoreId = firestoreGroupRef.id.toLongOrNull() ?:
+            System.currentTimeMillis() // Fallback if not convertible to Long
+
+            // Update group with Firestore ID before saving anywhere
+            val finalGroup = groupWithMembers.copy(id = firestoreId)
+
+            // Save to Firestore first
+            firestoreGroupRef.set(finalGroup).await()
+
+            // Now save to local with the same ID from Firestore
+            groupDao.insertGroupWithId(finalGroup)
 
             // Add reference to this group for each member
             for (memberId in allMembers) {
                 firestore.collection("users")
                     .document(memberId)
                     .collection(COLLECTION_USER_GROUPS)
-                    .document(id.toString())
-                    .set(mapOf("groupId" to id))
+                    .document(firestoreId.toString())
+                    .set(mapOf("groupId" to firestoreId))
                     .await()
             }
 
-            Log.d(TAG, "Group created with ${allMembers.size} members")
+            Log.d(TAG, "Group created successfully with ID: $firestoreId, members: ${allMembers.size}")
+            return firestoreId
         } catch (e: Exception) {
-            Log.e(TAG, "Error creating group in Firestore", e)
+            Log.e(TAG, "Error creating group", e)
+            return -1
         }
-
-        return id
     }
 
     suspend fun updateGroup(group: Group) {
