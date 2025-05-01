@@ -10,55 +10,156 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.ui.theme.BestSplitTheme
+import kotlinx.coroutines.launch
 
 @Composable
 fun MyAccountScreen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val userRepository = remember { UserRepository() }
+    val coroutineScope = rememberCoroutineScope()
+    
+    var userData by remember { mutableStateOf<UserRepository.User?>(null) }
+    var isEditing by remember { mutableStateOf(false) }
+    var upiId by remember { mutableStateOf("") }
+    
+    LaunchedEffect(Unit) {
+        val currentUserId = userRepository.getCurrentUserId()
+        if (currentUserId.isNotEmpty()) {
+            userData = userRepository.getUserById(currentUserId)
+            upiId = userData?.upiId ?: ""
+        }
+    }
+    
     Column(modifier = modifier.padding(16.dp)) {
         // User profile header
-        UserProfileHeader(
-            username = "John Doe",
-            email = "john.doe@example.com"
-        )
+        userData?.let {
+            UserProfileHeader(
+                username = it.name,
+                email = it.email
+            )
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Account Information
+        // Payment Information
         Text(
-            text = "Account Information",
+            text = "Payment Information",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 8.dp)
         )
+        
+        // UPI ID Field
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "UPI ID",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            if (isEditing) {
+                OutlinedTextField(
+                    value = upiId,
+                    onValueChange = { upiId = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        keyboardType = KeyboardType.Email
+                    ),
+                    trailingIcon = {
+                        Button(onClick = {
+                            coroutineScope.launch {
+                                userData?.let {
+                                    val updatedUser = it.copy(upiId = upiId)
+                                    userRepository.saveUser(updatedUser)
+                                    userData = updatedUser
+                                }
+                                isEditing = false
+                            }
+                        }) {
+                            Text("Save")
+                        }
+                    },
+                    label = { Text("e.g. yourname@upi") },
+                    supportingText = { Text("Adding your UPI ID enables direct payment settlements") }
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Column(modifier = Modifier.align(Alignment.CenterStart)) {
+                        Text(
+                            text = upiId.ifEmpty { "Not set" },
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (upiId.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                        )
 
-        AccountInfoItem(label = "Phone", value = "+1 (555) 123-4567")
-        AccountInfoItem(label = "Currency", value = "USD")
-        AccountInfoItem(label = "Language", value = "English")
+                        if (upiId.isNotEmpty()) {
+                            Text(
+                                text = "Others can pay you directly to settle expenses",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                text = "Add your UPI ID to enable direct payments",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { isEditing = true },
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit UPI ID"
+                        )
+                    }
+                }
+            }
+            
+            Divider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
-
-        // Payment Methods
-        Text(
-            text = "Payment Methods",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-
-        AccountInfoItem(label = "Default Payment", value = "Visa •••• 4321")
     }
 }
 

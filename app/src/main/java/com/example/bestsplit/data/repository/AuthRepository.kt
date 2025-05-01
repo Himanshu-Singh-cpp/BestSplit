@@ -87,7 +87,8 @@ class AuthRepository {
             val userData = hashMapOf(
                 "name" to (it.displayName ?: "User"),
                 "email" to (it.email ?: ""),
-                "photoUrl" to (it.photoUrl?.toString() ?: "")
+                "photoUrl" to (it.photoUrl?.toString() ?: ""),
+                "upiId" to null
             )
 
             Log.d("AuthRepository", "Saving user to Firestore: ${it.uid}, email: ${it.email}")

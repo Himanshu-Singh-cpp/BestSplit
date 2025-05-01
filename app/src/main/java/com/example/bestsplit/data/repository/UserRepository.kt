@@ -23,7 +23,8 @@ class UserRepository @Inject constructor(
         val id: String = "",
         val name: String = "",
         val email: String = "",
-        val photoUrl: String = ""
+        val photoUrl: String = "",
+        val upiId: String? = null
     )
 
     suspend fun getUserById(userId: String): User? {
@@ -42,8 +43,9 @@ class UserRepository @Inject constructor(
                 val name = document.getString("name") ?: "Unknown"
                 val email = document.getString("email") ?: ""
                 val photoUrl = document.getString("photoUrl") ?: ""
+                val upiId = document.getString("upiId")
 
-                val user = User(userId, name, email, photoUrl)
+                val user = User(userId, name, email, photoUrl, upiId)
                 userCache[userId] = user
                 user
             } else {
@@ -53,6 +55,24 @@ class UserRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching user data", e)
             null
+        }
+    }
+
+    suspend fun saveUser(user: User) {
+        try {
+            val userId = user.id
+            val document = firestore.collection(COLLECTION_USERS).document(userId)
+            document.set(
+                mapOf(
+                    "name" to user.name,
+                    "email" to user.email,
+                    "photoUrl" to user.photoUrl,
+                    "upiId" to user.upiId
+                )
+            ).await()
+            userCache[userId] = user
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving user data", e)
         }
     }
 
