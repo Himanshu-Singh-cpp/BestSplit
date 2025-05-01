@@ -96,12 +96,23 @@ class ExpenseRepository(
                         continue
                     }
 
-                    // Store in new location
+                    // Create an explicit map for Firestore to avoid serialization issues
+                    val expenseMap = mapOf(
+                        "id" to expense.id,
+                        "groupId" to expense.groupId,
+                        "description" to expense.description,
+                        "amount" to expense.amount,
+                        "paidBy" to expense.paidBy,
+                        "paidFor" to expense.paidFor,
+                        "createdAt" to expense.createdAt
+                    )
+
+                    // Store in new location using the map
                     firestore.collection(COLLECTION_GROUPS)
                         .document(expense.groupId.toString())
                         .collection(SUBCOLLECTION_EXPENSES)
                         .document(expense.id.toString())
-                        .set(expense)
+                        .set(expenseMap)
                         .await()
 
                     Log.d(
@@ -110,7 +121,20 @@ class ExpenseRepository(
                     )
 
                     // Also save to local database
-                    expenseDao.insertExpense(expense)
+                    try {
+                        expenseDao.insertExpense(expense)
+                        Log.d(TAG, "Saved old-style expense ${expense.id}")
+                    } catch (sqlEx: Exception) {
+                        // Handle foreign key constraint errors
+                        if (sqlEx.message?.contains("FOREIGN KEY constraint failed") == true) {
+                            Log.w(
+                                TAG,
+                                "Foreign key constraint failed for old expense ${expense.id}"
+                            )
+                        } else {
+                            Log.e(TAG, "Error inserting old expense: ${sqlEx.message}")
+                        }
+                    }
 
                     // Delete from old location (optional - can be commented out for safety)
                     // document.reference.delete().await()
@@ -361,7 +385,22 @@ class ExpenseRepository(
                                                 Log.d(TAG, "New expense detected: ${expense.id}")
                                             }
 
-                                            expenseDao.insertExpense(expense)
+                                            try {
+                                                expenseDao.insertExpense(expense)
+                                            } catch (sqlEx: Exception) {
+                                                // Check if it's a foreign key constraint error
+                                                if (sqlEx.message?.contains("FOREIGN KEY constraint failed") == true) {
+                                                    Log.w(
+                                                        TAG,
+                                                        "Foreign key constraint failed for expense ${expense.id}. Group ${expense.groupId} might not exist in local database yet."
+                                                    )
+                                                } else {
+                                                    Log.e(
+                                                        TAG,
+                                                        "Error inserting expense: ${sqlEx.message}"
+                                                    )
+                                                }
+                                            }
                                         }
                                     } catch (e: Exception) {
                                         Log.e(
@@ -393,7 +432,7 @@ class ExpenseRepository(
         try {
             Log.d(TAG, "Manually syncing expenses for group $groupId")
 
-            // Get all expenses for this group from Firestore
+            // Get all expenses for this group from Firebase subcollection
             val snapshot = firestore.collection(COLLECTION_GROUPS)
                 .document(groupId.toString())
                 .collection(SUBCOLLECTION_EXPENSES)
@@ -401,37 +440,66 @@ class ExpenseRepository(
                 .get()
                 .await()
 
-            if (snapshot.isEmpty) {
-                Log.d(TAG, "No expenses found in group $groupId subcollection.")
+            val expenses = snapshot.toObjects(Expense::class.java)
 
-                // Try the old collection as a fallback
-                val oldSnapshot = firestore.collection(OLD_COLLECTION_EXPENSES)
-                    .whereEqualTo("groupId", groupId)
-                    .get()
-                    .await()
+            Log.d(TAG, "Retrieved ${expenses.size} expenses from subcollection for group $groupId")
 
-                if (!oldSnapshot.isEmpty) {
-                    Log.d(
-                        TAG,
-                        "Found ${oldSnapshot.size()} expenses in old collection for group $groupId"
-                    )
-                    val expenses =
-                        oldSnapshot.documents.mapNotNull { it.toObject(Expense::class.java) }
-
-                    // Process these expenses
-                    processRetrievedExpenses(expenses, groupId)
-                } else {
-                    Log.d(TAG, "No expenses found for group $groupId in old collection either.")
-                }
-
-                return
+            // Process expenses from subcollection
+            if (expenses.isNotEmpty()) {
+                processRetrievedExpenses(expenses, groupId)
             }
 
-            val expenses = snapshot.toObjects(Expense::class.java)
-            Log.d(TAG, "Retrieved ${expenses.size} expenses from Firestore for group $groupId")
+            // Always check the old collection too for completeness
+            val oldSnapshot = firestore.collection(OLD_COLLECTION_EXPENSES)
+                .whereEqualTo("groupId", groupId)
+                .get()
+                .await()
 
-            // Process expenses
-            processRetrievedExpenses(expenses, groupId)
+            if (!oldSnapshot.isEmpty) {
+                Log.d(
+                    TAG,
+                    "Found ${oldSnapshot.size()} expenses in old collection for group $groupId"
+                )
+                val oldExpenses =
+                    oldSnapshot.documents.mapNotNull { it.toObject(Expense::class.java) }
+
+                // Process these expenses too
+                processRetrievedExpenses(oldExpenses, groupId)
+
+                // If we found expenses in the old collection but not in the subcollection,
+                // migrate them to the subcollection
+                if (expenses.isEmpty() && oldExpenses.isNotEmpty()) {
+                    Log.d(TAG, "Migrating ${oldExpenses.size} expenses to subcollection")
+                    oldExpenses.forEach { expense ->
+                        try {
+                            // Create an explicit map for Firestore to avoid serialization issues
+                            val expenseMap = mapOf(
+                                "id" to expense.id,
+                                "groupId" to expense.groupId,
+                                "description" to expense.description,
+                                "amount" to expense.amount,
+                                "paidBy" to expense.paidBy,
+                                "paidFor" to expense.paidFor,
+                                "createdAt" to expense.createdAt
+                            )
+
+                            // Store in new location using the map
+                            firestore.collection(COLLECTION_GROUPS)
+                                .document(expense.groupId.toString())
+                                .collection(SUBCOLLECTION_EXPENSES)
+                                .document(expense.id.toString())
+                                .set(expenseMap)
+                                .await()
+
+                            Log.d(TAG, "Migrated expense ${expense.id} to subcollection")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error migrating expense ${expense.id}", e)
+                        }
+                    }
+                }
+            } else if (expenses.isEmpty()) {
+                Log.d(TAG, "No expenses found for group $groupId in either location")
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing expenses from Firestore", e)
@@ -460,11 +528,26 @@ class ExpenseRepository(
 
                     Log.d(
                         TAG,
-                        "Saving expense ${expense.id} to local database. Amount: ${expense.amount}"
+                        "Trying to save expense ${expense.id} to local database. Amount: ${expense.amount}"
                     )
-                    expenseDao.insertExpense(expense)
+
+                    try {
+                        expenseDao.insertExpense(expense)
+                        Log.d(TAG, "Successfully saved expense ${expense.id}")
+                    } catch (sqlEx: Exception) {
+                        // Check if it's a foreign key constraint error
+                        if (sqlEx.message?.contains("FOREIGN KEY constraint failed") == true) {
+                            Log.w(
+                                TAG,
+                                "Foreign key constraint failed for expense ${expense.id}. Group ${expense.groupId} might not exist in local database yet."
+                            )
+                        } else {
+                            // Re-throw any other exception
+                            throw sqlEx
+                        }
+                    }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error inserting expense ${expense.id}", e)
+                    Log.e(TAG, "Error processing expense ${expense.id}: ${e.message}")
                 }
             }
         }
@@ -519,11 +602,23 @@ class ExpenseRepository(
                     withContext(Dispatchers.IO) {
                         for (expense in expenses) {
                             if (expense.id > 0 && expense.groupId == groupId) {
-                                expenseDao.insertExpense(expense)
-                                Log.d(
-                                    TAG,
-                                    "Saved expense ${expense.id} for group $groupId - amount: ${expense.amount}"
-                                )
+                                try {
+                                    expenseDao.insertExpense(expense)
+                                    Log.d(
+                                        TAG,
+                                        "Saved expense ${expense.id} for group $groupId - amount: ${expense.amount}"
+                                    )
+                                } catch (sqlEx: Exception) {
+                                    // Check if it's a foreign key constraint error
+                                    if (sqlEx.message?.contains("FOREIGN KEY constraint failed") == true) {
+                                        Log.w(
+                                            TAG,
+                                            "Foreign key constraint failed for expense ${expense.id}. Group ${expense.groupId} might not exist in local database yet."
+                                        )
+                                    } else {
+                                        Log.e(TAG, "Error inserting expense: ${sqlEx.message}")
+                                    }
+                                }
                             }
                         }
                     }
@@ -547,8 +642,20 @@ class ExpenseRepository(
                         val expense = document.toObject(Expense::class.java)
                         if (expense != null && expense.id > 0 && userGroupIds.contains(expense.groupId)) {
                             // Save to local database
-                            expenseDao.insertExpense(expense)
-                            Log.d(TAG, "Saved old-style expense ${expense.id}")
+                            try {
+                                expenseDao.insertExpense(expense)
+                                Log.d(TAG, "Saved old-style expense ${expense.id}")
+                            } catch (sqlEx: Exception) {
+                                // Handle foreign key constraint errors
+                                if (sqlEx.message?.contains("FOREIGN KEY constraint failed") == true) {
+                                    Log.w(
+                                        TAG,
+                                        "Foreign key constraint failed for old expense ${expense.id}"
+                                    )
+                                } else {
+                                    Log.e(TAG, "Error inserting old expense: ${sqlEx.message}")
+                                }
+                            }
                         }
                     }
                 }

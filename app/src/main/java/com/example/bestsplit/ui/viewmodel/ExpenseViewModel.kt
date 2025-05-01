@@ -1,11 +1,13 @@
 package com.example.bestsplit.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.bestsplit.data.database.AppDatabase
 import com.example.bestsplit.data.entity.Expense
 import com.example.bestsplit.data.repository.ExpenseRepository
+import com.example.bestsplit.data.repository.SettlementRepository
 import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.data.repository.GroupRepository
 import kotlinx.coroutines.delay
@@ -19,6 +21,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val repository: ExpenseRepository
     private val userRepository: UserRepository
     private val groupRepository: GroupRepository
+    private val settlementRepository: SettlementRepository
 
     sealed class ExpenseCreationState {
         object Idle : ExpenseCreationState()
@@ -54,10 +57,12 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     val expenseDeletionState: StateFlow<ExpenseDeletionState> = _expenseDeletionState.asStateFlow()
 
     init {
-        val expenseDao = AppDatabase.getDatabase(application).expenseDao()
+        val database = AppDatabase.getDatabase(application)
+        val expenseDao = database.expenseDao()
         repository = ExpenseRepository(expenseDao)
         userRepository = UserRepository()
-        groupRepository = GroupRepository(AppDatabase.getDatabase(application).groupDao())
+        groupRepository = GroupRepository(database.groupDao())
+        settlementRepository = SettlementRepository(database.settlementDao())
     }
 
     // Public method to initialize the repository
@@ -140,7 +145,16 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     // Force sync for a specific group
     fun syncExpensesForGroup(groupId: Long) {
         viewModelScope.launch {
-            repository.syncExpensesForGroup(groupId)
+            try {
+                // First perform normal sync
+                repository.syncExpensesForGroup(groupId)
+
+                // Additional sync to ensure all data is retrieved
+                delay(300)
+                repository.syncExpensesForGroup(groupId)
+            } catch (e: Exception) {
+                Log.e("ExpenseViewModel", "Error syncing expenses for group $groupId", e)
+            }
         }
     }
 
@@ -223,7 +237,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         _expenseDeletionState.value = ExpenseDeletionState.Idle
     }
 
-    // Calculate balances between members in a group based on expenses
+    // Calculate balances between members in a group based on expenses and settlements
     suspend fun calculateBalances(
         groupId: Long,
         members: List<String>
@@ -289,6 +303,43 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                             (balances[paidBy]!![memberId] ?: 0.0) - amount
                     }
                 }
+            }
+
+            // Apply settlements to balances
+            try {
+                val settlements = settlementRepository.getSettlementsForGroupAsList(groupId)
+
+                // Process each settlement
+                settlements.forEach { settlement ->
+                    val fromUser = settlement.fromUserId
+                    val toUser = settlement.toUserId
+                    val amount = settlement.amount
+
+                    // Skip settlements with invalid data
+                    if (fromUser.isBlank() || toUser.isBlank() ||
+                        !members.contains(fromUser) || !members.contains(toUser) ||
+                        amount <= 0
+                    ) {
+                        return@forEach
+                    }
+
+                    // Create maps if they don't exist
+                    if (!balances.containsKey(fromUser)) balances[fromUser] = mutableMapOf()
+                    if (!balances.containsKey(toUser)) balances[toUser] = mutableMapOf()
+
+                    if (!balances[fromUser]!!.containsKey(toUser)) balances[fromUser]!![toUser] =
+                        0.0
+                    if (!balances[toUser]!!.containsKey(fromUser)) balances[toUser]!![fromUser] =
+                        0.0
+
+                    // Update balances based on settlement
+                    // fromUser paid toUser, so reduce what fromUser owes toUser
+                    balances[fromUser]!![toUser] = (balances[fromUser]!![toUser] ?: 0.0) - amount
+                    // increase what toUser owes fromUser
+                    balances[toUser]!![fromUser] = (balances[toUser]!![fromUser] ?: 0.0) + amount
+                }
+            } catch (e: Exception) {
+                // Log the error and continue with expense-only balances
             }
 
             // Simplify balances (netting off mutual debts)

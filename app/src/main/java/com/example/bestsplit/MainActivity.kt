@@ -33,6 +33,7 @@ import com.example.bestsplit.ui.viewmodel.ActivityViewModel
 import com.example.bestsplit.ui.viewmodel.AuthViewModel
 import com.example.bestsplit.ui.viewmodel.ExpenseViewModel
 import com.example.bestsplit.ui.viewmodel.GroupViewModel
+import com.example.bestsplit.ui.viewmodel.SettlementViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -59,6 +60,7 @@ fun AppMain() {
     val expenseViewModel: ExpenseViewModel = viewModel()
     val groupViewModel: GroupViewModel = viewModel()
     val activityViewModel: ActivityViewModel = viewModel()
+    val settlementViewModel: SettlementViewModel = viewModel()
 
     // Coroutine scope for launching async operations
     val scope = rememberCoroutineScope()
@@ -118,6 +120,7 @@ fun AppMain() {
                 // Initialize repositories
                 expenseViewModel.initializeRepository()
                 groupViewModel.initializeRepository()
+                settlementViewModel.initializeRepository()
 
                 Log.d("MainActivity", "Auth state changed, syncing data")
 
