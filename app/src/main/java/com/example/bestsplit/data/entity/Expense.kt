@@ -1,4 +1,3 @@
-// app/src/main/java/com/example/bestsplit/data/entity/Expense.kt
 package com.example.bestsplit.data.entity
 
 import androidx.room.Entity
@@ -21,10 +20,10 @@ import com.example.bestsplit.data.database.Converters
 @TypeConverters(Converters::class)
 data class Expense(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val groupId: Long,
-    val description: String,
-    val amount: Double,
-    val paidBy: String, // User ID of payer
-    val paidFor: Map<String, Double>, // Map of user IDs to amounts
+    val groupId: Long = 0,
+    val description: String = "",
+    val amount: Double = 0.0,
+    val paidBy: String = "", // User ID of payer
+    val paidFor: Map<String, Double> = mapOf(), // Map of user IDs to amounts
     val createdAt: Long = System.currentTimeMillis()
 )
