@@ -77,86 +77,41 @@ fun AppMain() {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> {
-                    // App going to background
-                    wasInBackground = true
-                }
-
+                Lifecycle.Event.ON_PAUSE -> { wasInBackground = true }
                 Lifecycle.Event.ON_RESUME -> {
-                    // App coming to foreground
-                    if (wasInBackground) {
-                        // Only refresh if we're returning from background
-                        if (authState is AuthState.Authenticated) {
-                            scope.launch {
-                                groupViewModel.refreshGroups() // Sync groups
-                                expenseViewModel.syncAllExpensesAsync() // Sync expenses
-                                activityViewModel.refreshActivities() // Update activity feed
-                            }
-                        }
+                    if (wasInBackground && authState is AuthState.Authenticated) {
+                        // Only refresh groups, not expenses
+                        groupViewModel.refreshGroups()
                         wasInBackground = false
                     }
                 }
-
-                else -> {} // Ignore other events
+                else -> {}
             }
         }
 
-        // Add the observer
         lifecycleOwner.lifecycle.addObserver(observer)
-
-        // Remove the observer when the composable is disposed
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // Sync data when authenticated
     LaunchedEffect(authState) {
         if (authState is AuthState.Authenticated) {
-            // Sync data when user logs in or app starts with authenticated user
-            scope.launch {
-                // Initialize repositories
-                expenseViewModel.initializeRepository()
-                groupViewModel.initializeRepository()
+            // Initialize repositories (but don't sync)
+            expenseViewModel.initializeRepository()
+            groupViewModel.initializeRepository()
 
-                Log.d("MainActivity", "Auth state changed, syncing data")
+            Log.d("MainActivity", "Auth state changed")
 
-                // More aggressive sync on first auth (e.g., app install or reinstall)
-                if (isFirstAuth) {
-                    Log.d("MainActivity", "First authentication detected, performing full sync")
+            // More focused initial sync - only once at app start
+            if (isFirstAuth) {
+                Log.d("MainActivity", "First authentication, performing sync")
 
-                    // First sync groups
-                    groupViewModel.refreshGroups()
-                    delay(500)
+                // First sync groups
+                groupViewModel.refreshGroups()
+                // Update activities
+                activityViewModel.refreshActivities()
 
-                    // Then sync expenses (multiple attempts)
-                    repeat(3) {
-                        expenseViewModel.syncAllExpensesAsync()
-                        delay(500)
-                    }
-
-                    // Perform a full reload to ensure all expenses are loaded from Firestore
-                    expenseViewModel.fullReloadExpenses()
-
-                    // Then update activities
-                    activityViewModel.refreshActivities()
-                    delay(500)
-
-                    // One more round of syncs
-                    groupViewModel.refreshGroups()
-                    delay(300)
-                    expenseViewModel.syncAllExpensesAsync()
-
-                    isFirstAuth = false
-                    Log.d("MainActivity", "Full initialization sync completed")
-                } else {
-                    // Regular sync
-                    groupViewModel.refreshGroups() // Sync groups first
-                    delay(300)
-                    expenseViewModel.syncAllExpensesAsync() // Then sync all expenses
-                }
-
-                activityViewModel.refreshActivities() // Update activity feed
+                isFirstAuth = false
             }
         }
     }

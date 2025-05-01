@@ -146,9 +146,6 @@ fun AddExpenseScreen(
                                         "AddExpenseScreen",
                                         "Shares: ${shares.entries.joinToString { "${it.key}=${it.value}" }}"
                                     )
-
-                                    // Force sync after adding expense
-                                    viewModel.syncExpensesForGroup(groupId)
                                 } catch (e: Exception) {
                                     Log.e("AddExpenseScreen", "Error adding expense", e)
                                 }

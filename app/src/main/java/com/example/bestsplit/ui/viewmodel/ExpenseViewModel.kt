@@ -43,37 +43,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         repository.initialize()
     }
 
-    // Public method to sync all expenses
-    fun syncAllExpensesAsync() {
-        viewModelScope.launch {
-            // Wait a moment to ensure auth is ready
-            delay(500)
-            performInitialSync()
-        }
-    }
-
-    private suspend fun performInitialSync() {
-        // Perform initial sync of expenses for all user groups
-        val currentUserId = userRepository.getCurrentUserId()
-        if (currentUserId.isEmpty()) return
-
-        // Get all user's groups
-        val groups = groupRepository.getAllGroupsSync()
-        if (groups.isEmpty()) {
-            return
-        }
-
-        val userGroupIds = groups
-            .filter { it.members.contains(currentUserId) }
-            .map { it.id }
-
-        // Sync expenses for these groups
-        repository.syncAllExpenses(userGroupIds)
-
-        // Also trigger an additional full reload in the background
-        fullReloadExpenses()
-    }
-
     // Full reload of expenses for reinstalls
     suspend fun fullReloadExpenses() {
         val currentUserId = userRepository.getCurrentUserId()
@@ -84,30 +53,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         if (groups.isEmpty()) {
             return
 
-        }
-
-        val userGroupIds = groups
-            .filter { it.members.contains(currentUserId) }
-            .map { it.id }
-
-        // Perform the full reload
-        repository.fullReloadExpenses(userGroupIds)
-    }
-
-    // Sync all expenses for groups the user is a member of
-    fun syncAllExpenses() {
-        viewModelScope.launch {
-            val currentUserId = userRepository.getCurrentUserId()
-            if (currentUserId.isEmpty()) return@launch
-
-            // Get all user's groups
-            val groups = groupRepository.getAllGroupsSync()
-            val userGroupIds = groups
-                .filter { it.members.contains(currentUserId) }
-                .map { it.id }
-
-            // Sync expenses for these groups
-            repository.syncAllExpenses(userGroupIds)
         }
     }
 

@@ -50,7 +50,6 @@ class ExpenseRepository(
     fun initialize() {
         if (initialSyncPerformed) return
 
-        // Check if authentication is available
         val userId = auth.currentUser?.uid
         if (userId.isNullOrEmpty()) {
             Log.e(TAG, "Cannot initialize expense repository - no authenticated user")
@@ -60,9 +59,7 @@ class ExpenseRepository(
         Log.d(TAG, "Initializing expense repository for user: $userId")
         applicationScope.launch {
             try {
-                // Perform migration first
                 migrateExpensesToSubcollections()
-
                 initialSyncPerformed = true
             } catch (e: Exception) {
                 Log.e(TAG, "Error during expense repository initialization", e)
@@ -127,13 +124,10 @@ class ExpenseRepository(
 
     fun getExpensesForGroup(groupId: Long): Flow<List<Expense>> {
         // Start listening to real-time updates for this group
-        setupRealtimeSync(groupId)
         return expenseDao.getExpensesForGroup(groupId)
     }
 
     suspend fun getExpensesForGroupAsList(groupId: Long): List<Expense> {
-        // Make sure we have the latest data
-        syncExpensesForGroup(groupId)
         return expenseDao.getExpensesForGroupSync(groupId)
     }
 
@@ -225,80 +219,6 @@ class ExpenseRepository(
         }
 
         return id
-    }
-
-    // Setup real-time sync for a specific group
-    private fun setupRealtimeSync(groupId: Long) {
-        // Avoid registering multiple listeners for the same group
-        if (listeners.containsKey(groupId)) {
-            // Refresh the listener if it already exists
-            removeListener(groupId)
-        }
-
-        // Listen to expenses as a subcollection of the group
-        val listener = firestore.collection(COLLECTION_GROUPS)
-            .document(groupId.toString())
-            .collection(SUBCOLLECTION_EXPENSES)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    Log.e(TAG, "Error listening for expense updates", error)
-                    return@addSnapshotListener
-                }
-
-                if (snapshots != null && !snapshots.isEmpty) {
-                    applicationScope.launch {
-                        try {
-                            val expenses = snapshots.toObjects<Expense>()
-                            Log.d(
-                                TAG,
-                                "Received ${expenses.size} expense updates for group $groupId"
-                            )
-
-                            // Skip update if no expenses or invalid data
-                            if (expenses.isEmpty()) return@launch
-
-                            // Track if we actually inserted any new data
-                            var dataChanged = false
-
-                            // Update local database one by one to avoid transaction issues
-                            withContext(Dispatchers.IO) {
-                                expenses.forEach { expense ->
-                                    try {
-                                        if (expense.id > 0 && expense.groupId == groupId) {
-                                            // Check if expense exists first
-                                            val existing = expenseDao.getExpenseById(expense.id)
-                                            if (existing == null) {
-                                                // This is a new expense
-                                                dataChanged = true
-                                                Log.d(TAG, "New expense detected: ${expense.id}")
-                                            }
-
-                                            expenseDao.insertExpense(expense)
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.e(
-                                            TAG,
-                                            "Error updating expense in Room: ${expense.id}",
-                                            e
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (dataChanged) {
-                                Log.d(TAG, "New expenses added, triggering UI refresh")
-                                // You could trigger a UI refresh here if needed
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error processing expense snapshot", e)
-                        }
-                    }
-                }
-            }
-
-        listeners[groupId] = listener
-        Log.d(TAG, "Real-time sync established for group $groupId")
     }
 
     // Sync expenses on-demand for a group
@@ -400,92 +320,5 @@ class ExpenseRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing all expenses", e)
         }
-    }
-
-    // Perform a complete sync of all expenses, including checking both old and new structures
-    // This is especially useful for reinstalls
-    suspend fun fullReloadExpenses(userGroupIds: List<Long>) {
-        try {
-            val currentUserId = auth.currentUser?.uid ?: return
-            Log.d(TAG, "Performing FULL expense reload for user $currentUserId")
-
-            // First migrate any old expenses
-            migrateExpensesToSubcollections()
-
-            // Then sync from new structure
-            for (groupId in userGroupIds) {
-                try {
-                    Log.d(TAG, "Full reload for group $groupId")
-
-                    // Try to load expenses as subcollection
-                    val snapshot = firestore.collection(COLLECTION_GROUPS)
-                        .document(groupId.toString())
-                        .collection(SUBCOLLECTION_EXPENSES)
-                        .orderBy("createdAt", Query.Direction.DESCENDING)
-                        .get()
-                        .await()
-
-                    val expenses = snapshot.toObjects(Expense::class.java)
-                    Log.d(TAG, "Found ${expenses.size} expenses in group $groupId")
-
-                    // Save to database
-                    withContext(Dispatchers.IO) {
-                        for (expense in expenses) {
-                            if (expense.id > 0 && expense.groupId == groupId) {
-                                expenseDao.insertExpense(expense)
-                                Log.d(
-                                    TAG,
-                                    "Saved expense ${expense.id} for group $groupId - amount: ${expense.amount}"
-                                )
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in full reload for group $groupId", e)
-                }
-            }
-
-            // Also check for any expenses in the old collection structure
-            try {
-                val oldExpenses = firestore.collection(OLD_COLLECTION_EXPENSES)
-                    .whereIn("groupId", userGroupIds.map { it.toString() })
-                    .get()
-                    .await()
-
-                if (!oldExpenses.isEmpty) {
-                    Log.d(TAG, "Found ${oldExpenses.size()} expenses in old collection")
-
-                    // Process and save each expense
-                    for (document in oldExpenses.documents) {
-                        val expense = document.toObject(Expense::class.java)
-                        if (expense != null && expense.id > 0 && userGroupIds.contains(expense.groupId)) {
-                            // Save to local database
-                            expenseDao.insertExpense(expense)
-                            Log.d(TAG, "Saved old-style expense ${expense.id}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking old expenses", e)
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in full reload of expenses", e)
-        }
-    }
-
-    // Clean up listeners when no longer needed
-    fun removeListener(groupId: Long) {
-        listeners[groupId]?.remove()
-        listeners.remove(groupId)
-        Log.d(TAG, "Removed expense listener for group $groupId")
-    }
-
-    fun removeAllListeners() {
-        for ((groupId, listener) in listeners) {
-            listener.remove()
-            Log.d(TAG, "Removed expense listener for group $groupId")
-        }
-        listeners.clear()
     }
 }

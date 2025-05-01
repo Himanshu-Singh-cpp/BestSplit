@@ -42,9 +42,6 @@ class ActivityViewModel(application: Application) : AndroidViewModel(application
             syncData()
             // Then load activities with fresh data
             loadActivities()
-
-            // Set up periodic refreshes
-            startPeriodicRefresh()
         }
     }
 
