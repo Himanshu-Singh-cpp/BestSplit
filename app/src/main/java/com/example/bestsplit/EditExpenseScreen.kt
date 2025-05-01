@@ -196,6 +196,8 @@ fun EditExpenseScreen(
 
                                     // Force sync after updating expense
                                     viewModel.syncExpensesForGroup(groupId)
+                                    // Recalculate balances for this group
+                                    viewModel.recalculateBalances(groupId)
                                 } catch (e: Exception) {
                                     Log.e("EditExpenseScreen", "Error updating expense", e)
                                 }

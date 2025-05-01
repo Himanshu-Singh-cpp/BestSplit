@@ -145,6 +145,10 @@ fun GroupDetailsScreen(
                 // Show success message or refresh data
                 expenseViewModel.resetExpenseDeletionState()
                 expenseViewModel.syncExpensesForGroup(groupId)
+                // Recalculate balances after expense deletion
+                if (group != null) {
+                    expenseViewModel.recalculateBalances(groupId)
+                }
             }
 
             is ExpenseDeletionState.Error -> {
@@ -683,6 +687,7 @@ fun ExpenseItem(
                                 expanded = false
                                 scope.launch {
                                     expenseViewModel.deleteExpense(expense.id, expense.groupId)
+                                    // The balance recalculation is handled in the LaunchedEffect for deletionState
                                 }
                             }
                         )
@@ -731,7 +736,7 @@ fun ExpenseItem(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = memberName + if (isCurrentUser) " (you)" else "",
+                            text = memberName,
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = if (isCurrentUser) FontWeight.Medium else FontWeight.Normal

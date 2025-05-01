@@ -387,4 +387,30 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     suspend fun getExpenseById(expenseId: Long): Expense? {
         return repository.getExpenseById(expenseId)
     }
+
+    // Recalculates balances for a group and notifies listeners
+    fun recalculateBalances(groupId: Long) {
+        viewModelScope.launch {
+            try {
+                Log.d("ExpenseViewModel", "Recalculating balances for group $groupId")
+
+                // First sync expenses to ensure we have latest data
+                repository.syncExpensesForGroup(groupId)
+
+                // Get the group members from group repository
+                val group = groupRepository.getGroupById(groupId)
+                if (group != null) {
+                    // Calculate balances with latest data
+                    calculateBalances(groupId, group.members)
+                } else {
+                    Log.e(
+                        "ExpenseViewModel",
+                        "Could not recalculate balances - group $groupId not found"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("ExpenseViewModel", "Error recalculating balances for group $groupId", e)
+            }
+        }
+    }
 }
