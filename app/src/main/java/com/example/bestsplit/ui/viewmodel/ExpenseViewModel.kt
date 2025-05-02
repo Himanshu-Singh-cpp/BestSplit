@@ -1,11 +1,13 @@
 package com.example.bestsplit.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.bestsplit.data.database.AppDatabase
 import com.example.bestsplit.data.entity.Expense
 import com.example.bestsplit.data.repository.ExpenseRepository
+import com.example.bestsplit.data.repository.SettlementRepository
 import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.data.repository.GroupRepository
 import kotlinx.coroutines.delay
@@ -19,6 +21,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val repository: ExpenseRepository
     private val userRepository: UserRepository
     private val groupRepository: GroupRepository
+    private val settlementRepository: SettlementRepository
 
     sealed class ExpenseCreationState {
         object Idle : ExpenseCreationState()
@@ -27,15 +30,39 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         data class Error(val message: String) : ExpenseCreationState()
     }
 
+    sealed class ExpenseUpdateState {
+        object Idle : ExpenseUpdateState()
+        object Loading : ExpenseUpdateState()
+        object Success : ExpenseUpdateState()
+        data class Error(val message: String) : ExpenseUpdateState()
+    }
+
+    sealed class ExpenseDeletionState {
+        object Idle : ExpenseDeletionState()
+        object Loading : ExpenseDeletionState()
+        object Success : ExpenseDeletionState()
+        data class Error(val message: String) : ExpenseDeletionState()
+    }
+
     private val _expenseCreationState =
         MutableStateFlow<ExpenseCreationState>(ExpenseCreationState.Idle)
     val expenseCreationState: StateFlow<ExpenseCreationState> = _expenseCreationState.asStateFlow()
 
+    private val _expenseUpdateState =
+        MutableStateFlow<ExpenseUpdateState>(ExpenseUpdateState.Idle)
+    val expenseUpdateState: StateFlow<ExpenseUpdateState> = _expenseUpdateState.asStateFlow()
+
+    private val _expenseDeletionState =
+        MutableStateFlow<ExpenseDeletionState>(ExpenseDeletionState.Idle)
+    val expenseDeletionState: StateFlow<ExpenseDeletionState> = _expenseDeletionState.asStateFlow()
+
     init {
-        val expenseDao = AppDatabase.getDatabase(application).expenseDao()
+        val database = AppDatabase.getDatabase(application)
+        val expenseDao = database.expenseDao()
         repository = ExpenseRepository(expenseDao)
         userRepository = UserRepository()
-        groupRepository = GroupRepository(AppDatabase.getDatabase(application).groupDao())
+        groupRepository = GroupRepository(database.groupDao())
+        settlementRepository = SettlementRepository(database.settlementDao())
     }
 
     // Public method to initialize the repository
@@ -63,7 +90,16 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     // Force sync for a specific group
     fun syncExpensesForGroup(groupId: Long) {
         viewModelScope.launch {
-            repository.syncExpensesForGroup(groupId)
+            try {
+                // First perform normal sync
+                repository.syncExpensesForGroup(groupId)
+
+                // Additional sync to ensure all data is retrieved
+                delay(300)
+                repository.syncExpensesForGroup(groupId)
+            } catch (e: Exception) {
+                Log.e("ExpenseViewModel", "Error syncing expenses for group $groupId", e)
+            }
         }
     }
 
@@ -100,7 +136,53 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         _expenseCreationState.value = ExpenseCreationState.Idle
     }
 
-    // Calculate balances between members in a group based on expenses
+    fun updateExpense(expense: Expense) {
+        viewModelScope.launch {
+            try {
+                _expenseUpdateState.value = ExpenseUpdateState.Loading
+
+                val success = repository.updateExpense(expense)
+
+                if (success) {
+                    _expenseUpdateState.value = ExpenseUpdateState.Success
+                } else {
+                    _expenseUpdateState.value = ExpenseUpdateState.Error("Failed to update expense")
+                }
+            } catch (e: Exception) {
+                _expenseUpdateState.value = ExpenseUpdateState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    fun deleteExpense(expenseId: Long, groupId: Long) {
+        viewModelScope.launch {
+            try {
+                _expenseDeletionState.value = ExpenseDeletionState.Loading
+
+                val success = repository.deleteExpense(expenseId, groupId)
+
+                if (success) {
+                    _expenseDeletionState.value = ExpenseDeletionState.Success
+                } else {
+                    _expenseDeletionState.value =
+                        ExpenseDeletionState.Error("Failed to delete expense")
+                }
+            } catch (e: Exception) {
+                _expenseDeletionState.value =
+                    ExpenseDeletionState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    fun resetExpenseUpdateState() {
+        _expenseUpdateState.value = ExpenseUpdateState.Idle
+    }
+
+    fun resetExpenseDeletionState() {
+        _expenseDeletionState.value = ExpenseDeletionState.Idle
+    }
+
+    // Calculate balances between members in a group based on expenses and settlements
     suspend fun calculateBalances(
         groupId: Long,
         members: List<String>
@@ -168,6 +250,43 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
 
+            // Apply settlements to balances
+            try {
+                val settlements = settlementRepository.getSettlementsForGroupAsList(groupId)
+
+                // Process each settlement
+                settlements.forEach { settlement ->
+                    val fromUser = settlement.fromUserId
+                    val toUser = settlement.toUserId
+                    val amount = settlement.amount
+
+                    // Skip settlements with invalid data
+                    if (fromUser.isBlank() || toUser.isBlank() ||
+                        !members.contains(fromUser) || !members.contains(toUser) ||
+                        amount <= 0
+                    ) {
+                        return@forEach
+                    }
+
+                    // Create maps if they don't exist
+                    if (!balances.containsKey(fromUser)) balances[fromUser] = mutableMapOf()
+                    if (!balances.containsKey(toUser)) balances[toUser] = mutableMapOf()
+
+                    if (!balances[fromUser]!!.containsKey(toUser)) balances[fromUser]!![toUser] =
+                        0.0
+                    if (!balances[toUser]!!.containsKey(fromUser)) balances[toUser]!![fromUser] =
+                        0.0
+
+                    // Update balances based on settlement
+                    // fromUser paid toUser, so reduce what fromUser owes toUser
+                    balances[fromUser]!![toUser] = (balances[fromUser]!![toUser] ?: 0.0) - amount
+                    // increase what toUser owes fromUser
+                    balances[toUser]!![fromUser] = (balances[toUser]!![fromUser] ?: 0.0) + amount
+                }
+            } catch (e: Exception) {
+                // Log the error and continue with expense-only balances
+            }
+
             // Simplify balances (netting off mutual debts)
             members.forEach { member ->
                 // Skip if member not in balances
@@ -208,5 +327,35 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     // Get user details for display
     suspend fun getUserDetails(userId: String): UserRepository.User? {
         return userRepository.getUserById(userId)
+    }
+
+    suspend fun getExpenseById(expenseId: Long): Expense? {
+        return repository.getExpenseById(expenseId)
+    }
+
+    // Recalculates balances for a group and notifies listeners
+    fun recalculateBalances(groupId: Long) {
+        viewModelScope.launch {
+            try {
+                Log.d("ExpenseViewModel", "Recalculating balances for group $groupId")
+
+                // First sync expenses to ensure we have latest data
+                repository.syncExpensesForGroup(groupId)
+
+                // Get the group members from group repository
+                val group = groupRepository.getGroupById(groupId)
+                if (group != null) {
+                    // Calculate balances with latest data
+                    calculateBalances(groupId, group.members)
+                } else {
+                    Log.e(
+                        "ExpenseViewModel",
+                        "Could not recalculate balances - group $groupId not found"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("ExpenseViewModel", "Error recalculating balances for group $groupId", e)
+            }
+        }
     }
 }

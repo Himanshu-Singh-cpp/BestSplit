@@ -21,9 +21,13 @@ import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,8 +63,13 @@ import com.example.bestsplit.data.entity.Expense
 import com.example.bestsplit.data.entity.Group
 import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.ui.viewmodel.ExpenseViewModel
+import com.example.bestsplit.ui.viewmodel.ExpenseViewModel.ExpenseDeletionState
 import com.example.bestsplit.ui.viewmodel.GroupViewModel
+import com.example.bestsplit.ui.viewmodel.SettlementViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -73,8 +82,10 @@ fun GroupDetailsScreen(
     groupId: Long,
     groupViewModel: GroupViewModel = viewModel(),
     expenseViewModel: ExpenseViewModel = viewModel(),
+    settlementViewModel: SettlementViewModel = viewModel(),
     onNavigateBack: () -> Unit = {},
-    onAddExpense: (Long, List<UserRepository.User>) -> Unit = { _, _ -> }
+    onAddExpense: (Long, List<UserRepository.User>) -> Unit = { _, _ -> },
+    onEditExpense: (Expense, List<UserRepository.User>) -> Unit = { _, _ -> }
 ) {
     val scope = rememberCoroutineScope()
     var group by remember { mutableStateOf<Group?>(null) }
@@ -95,6 +106,36 @@ fun GroupDetailsScreen(
     val expenses by expenseViewModel.getExpensesForGroup(groupId)
         .collectAsState(initial = emptyList())
 
+    // Observe delete state
+    val deletionState by expenseViewModel.expenseDeletionState.collectAsState()
+
+    // Reset deletion state when leaving the screen
+    LaunchedEffect(Unit) {
+        expenseViewModel.resetExpenseDeletionState()
+    }
+
+    // Handle deletion state changes
+    LaunchedEffect(deletionState) {
+        when (deletionState) {
+            is ExpenseDeletionState.Success -> {
+                // Show success message or refresh data
+                expenseViewModel.resetExpenseDeletionState()
+                expenseViewModel.syncExpensesForGroup(groupId)
+                // Recalculate balances after expense deletion
+                if (group != null) {
+                    expenseViewModel.recalculateBalances(groupId)
+                }
+            }
+
+            is ExpenseDeletionState.Error -> {
+                // Could show error message here
+                expenseViewModel.resetExpenseDeletionState()
+            }
+
+            else -> {}
+        }
+    }
+
     // Sort expenses by date (most recent first)
     val sortedExpenses = remember(expenses) {
         expenses.sortedByDescending { it.createdAt }
@@ -103,12 +144,31 @@ fun GroupDetailsScreen(
     // Calculated balances
     var balances by remember { mutableStateOf<Map<String, Map<String, Double>>>(emptyMap()) }
 
+    // Track if we're currently syncing expenses
+    var isSyncing by remember { mutableStateOf(false) }
+
+    // Function to sync expenses with loading indicator
+    val syncExpenses = {
+        scope.launch {
+            isSyncing = true
+            try {
+                expenseViewModel.syncExpensesForGroup(groupId)
+                delay(1000)
+            } finally {
+                isSyncing = false
+            }
+        }
+    }
+
     // Load group details
     LaunchedEffect(groupId) {
         scope.launch {
             try {
                 // Sync from cloud once
                 groupViewModel.refreshGroups()
+
+                // Wait a moment to ensure sync completes
+                delay(300)
 
                 // Then fetch the group
                 group = groupViewModel.getGroupById(groupId)
@@ -144,11 +204,68 @@ fun GroupDetailsScreen(
 
             if (group != null) {
                 try {
-                    // Recalculate balances without additional syncs
-                    balances = expenseViewModel.calculateBalances(groupId, group!!.members)
+                    // Use a try-catch with isActive check to handle composition leaving
+                    val currentGroup = group // Capture group in a local variable
+                    if (currentGroup == null) {
+                        Log.d("GroupDetailsScreen", "Skipping balance calculation - group is null")
+                        return@LaunchedEffect
+                    }
+                    val currentGroupId = groupId // Capture groupId in a local variable
+
+                    scope.launch {
+
+                        try {
+                            // Check if still active before each operation
+                            if (!isActive) return@launch
+
+                            // Re-sync expenses to make sure we have the latest data
+                            expenseViewModel.syncExpensesForGroup(currentGroupId)
+
+                            // Short delay to ensure sync is complete
+                            delay(300)
+                            if (!isActive) return@launch
+
+                            // Try syncing again to be sure
+                            expenseViewModel.syncExpensesForGroup(currentGroupId)
+                            delay(200)
+                            if (!isActive) return@launch
+
+                            // Recalculate balances
+                            val newBalances = expenseViewModel.calculateBalances(
+                                currentGroupId,
+                                currentGroup.members
+                            )
+
+                            // Final check before updating state
+                            if (isActive) {
+                                balances = newBalances
+                            }
+                        } catch (e: Exception) {
+                            // Check if cancellation exception
+                            if (e is CancellationException) {
+                                Log.d("GroupDetailsScreen", "Balance calculation cancelled")
+                            } else {
+                                Log.e("GroupDetailsScreen", "Error calculating balances", e)
+                            }
+                        }
+                    }
                 } catch (e: Exception) {
-                    Log.e("GroupDetailsScreen", "Error calculating balances", e)
+                    // Log error but don't crash
+                    Log.e("GroupDetailsScreen", "Error launching balance calculation", e)
                 }
+            }
+        }
+    }
+
+    val userRepository = UserRepository()
+    var currentUserId by remember { mutableStateOf("") }
+    var currentUser by remember { mutableStateOf<UserRepository.User?>(null) }
+
+    LaunchedEffect(Unit) {
+        scope.launch {
+            currentUserId = userRepository.getCurrentUserId()
+            if (currentUserId.isNotEmpty()) {
+                currentUser = userRepository.getUserById(currentUserId)
             }
         }
     }
@@ -247,8 +364,76 @@ fun GroupDetailsScreen(
                 }
 
                 when (selectedTabIndex) {
-                    0 -> ExpensesTab(sortedExpenses, members)  // Remove the isSyncing parameter
-                    1 -> BalancesTab(balances, members)
+                    0 -> ExpensesTab(
+                        expenses = sortedExpenses,
+                        members = members,
+                        isSyncing = isSyncing,
+                        expenseViewModel = expenseViewModel,
+                        onEditExpense = onEditExpense
+                    )
+                    1 -> BalancesTab(
+                        balances = balances,
+                        members = members,
+                        groupId = groupId,
+                        currentUserId = currentUserId,
+                        currentUser = currentUser,
+                        onSettlementAdded = {
+                            scope.launch {
+                                // Show loading state
+                                isSyncing = true
+
+                                try {
+                                    val currentGroup = group
+                                    if (currentGroup == null) {
+                                        Log.d(
+                                            "GroupDetailsScreen",
+                                            "Skipping balance calculation - group is null"
+                                        )
+                                        return@launch
+                                    }
+
+                                    // Force refresh settlements and expenses
+                                    settlementViewModel.syncSettlementsForGroup(groupId)
+                                    expenseViewModel.syncExpensesForGroup(groupId)
+
+                                    // Delay to allow sync to complete
+                                    delay(500)
+
+                                    // Recalculate balances with null check
+                                    if (isActive && currentGroup != null) {
+                                        try {
+                                            val newBalances = expenseViewModel.calculateBalances(
+                                                groupId,
+                                                currentGroup.members
+                                            )
+
+                                            // Only update if still active
+                                            if (isActive) {
+                                                balances = newBalances
+                                            }
+                                        } catch (e: Exception) {
+                                            if (e !is CancellationException) {
+                                                Log.e("Balances", "Error calculating balances", e)
+                                            }
+                                        }
+                                    }
+
+                                    // One more sync to be absolutely sure
+                                    if (isActive) {
+                                        expenseViewModel.syncExpensesForGroup(groupId)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("Balances", "Error refreshing", e)
+                                } finally {
+                                    if (isActive) {
+                                        delay(300) // Small delay before hiding loading
+                                        isSyncing = false
+                                    }
+                                }
+                            }
+                        },
+                        settlementViewModel = settlementViewModel
+                    )
                     2 -> MembersTab(members)
                 }
             }
@@ -258,7 +443,13 @@ fun GroupDetailsScreen(
 
 @Composable
 @OptIn(ExperimentalMaterialApi::class)
-fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>) {
+fun ExpensesTab(
+    expenses: List<Expense>,
+    members: List<UserRepository.User>,
+    isSyncing: Boolean,
+    expenseViewModel: ExpenseViewModel,
+    onEditExpense: (Expense, List<UserRepository.User>) -> Unit
+) {
     val memberMap = remember(members) {
         members.associateBy { it.id }
     }
@@ -273,14 +464,7 @@ fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>) {
         onRefresh = {
             scope.launch {
                 refreshing = true
-
-                // Find the group ID from the first expense (if any)
-                val groupId = expenses.firstOrNull()?.groupId
-                if (groupId != null) {
-                    viewModel.syncExpensesForGroup(groupId)
-                    delay(1000) // Give some time for the sync to complete
-                }
-
+                refreshExpenses(scope, expenses, expenseViewModel)
                 refreshing = false
             }
         }
@@ -329,7 +513,13 @@ fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>) {
                     .padding(horizontal = 16.dp)
             ) {
                 items(expenses) { expense ->
-                    ExpenseItem(expense, memberMap)
+                    ExpenseItem(
+                        expense = expense,
+                        memberMap = memberMap,
+                        expenseViewModel = expenseViewModel,
+                        members = members,
+                        onEditExpense = onEditExpense
+                    )
                 }
             }
 
@@ -340,7 +530,8 @@ fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>) {
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
-            if (refreshing) {
+            // Loading indicator
+            if (isSyncing) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -354,8 +545,35 @@ fun ExpensesTab(expenses: List<Expense>, members: List<UserRepository.User>) {
     }
 }
 
+// Helper function to refresh expenses
+private suspend fun refreshExpenses(
+    scope: CoroutineScope,
+    expenses: List<Expense>,
+    expenseViewModel: ExpenseViewModel
+) {
+    try {
+        // Find the group ID from the first expense (if any)
+        val groupId = expenses.firstOrNull()?.groupId
+        if (groupId != null) {
+            // Force multiple syncs to ensure we get all data
+            repeat(3) {
+                expenseViewModel.syncExpensesForGroup(groupId)
+                delay(300)
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("ExpensesTab", "Error refreshing expenses", e)
+    }
+}
+
 @Composable
-fun ExpenseItem(expense: Expense, memberMap: Map<String, UserRepository.User>) {
+fun ExpenseItem(
+    expense: Expense,
+    memberMap: Map<String, UserRepository.User>,
+    expenseViewModel: ExpenseViewModel,
+    members: List<UserRepository.User>,
+    onEditExpense: (Expense, List<UserRepository.User>) -> Unit
+) {
     val currencyFormat = remember { NumberFormat.getCurrencyInstance() }
     val payerName = memberMap[expense.paidBy]?.name ?: "Unknown"
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault()) }
@@ -363,6 +581,9 @@ fun ExpenseItem(expense: Expense, memberMap: Map<String, UserRepository.User>) {
 
     // Count how many people are involved in this expense
     val participantCount = expense.paidFor.size
+
+    val scope = rememberCoroutineScope()
+    var expanded by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
@@ -387,8 +608,59 @@ fun ExpenseItem(expense: Expense, memberMap: Map<String, UserRepository.User>) {
                     text = currencyFormat.format(expense.amount),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 8.dp)
                 )
+
+                Box {
+                    IconButton(
+                        onClick = { expanded = true },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Edit") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit"
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onEditExpense(expense, members)
+                            }
+                        )
+
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Delete") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = Color.Red
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                scope.launch {
+                                    expenseViewModel.deleteExpense(expense.id, expense.groupId)
+                                    // The balance recalculation is handled in the LaunchedEffect for deletionState
+                                }
+                            }
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -451,122 +723,317 @@ fun ExpenseItem(expense: Expense, memberMap: Map<String, UserRepository.User>) {
 }
 
 @Composable
-fun BalancesTab(balances: Map<String, Map<String, Double>>, members: List<UserRepository.User>) {
+fun BalancesTab(
+    balances: Map<String, Map<String, Double>>,
+    members: List<UserRepository.User>,
+    groupId: Long,
+    currentUserId: String,
+    currentUser: UserRepository.User?,
+    onSettlementAdded: () -> Unit,
+    settlementViewModel: SettlementViewModel = viewModel()
+) {
     val memberMap = remember(members) {
         members.associateBy { it.id }
     }
 
     val currencyFormat = remember { NumberFormat.getCurrencyInstance() }
+    val scope = rememberCoroutineScope()
+
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    // Force refresh function that can be called from multiple places
+    val forceRefresh = {
+        scope.launch {
+            isRefreshing = true
+            try {
+                // Sync settlements
+                settlementViewModel.syncSettlementsForGroup(groupId)
+                delay(300)
+
+                // Call callback to recalculate balances
+                onSettlementAdded()
+            } finally {
+                // Allow time for UI update
+                delay(500)
+                isRefreshing = false
+            }
+        }
+    }
+
+    // Also observe settlement state to refresh when complete
+    val settlementState by settlementViewModel.settlementState.collectAsState()
+
+    // When settlement state changes to success, trigger refresh
+    LaunchedEffect(settlementState) {
+        if (settlementState is SettlementViewModel.SettlementState.Success) {
+            // Reset state first to avoid infinite loops
+            settlementViewModel.resetSettlementState()
+
+            // Then refresh
+            forceRefresh()
+        }
+    }
+
+    // State for settlement dialog
+    var showSettlementDialog by remember { mutableStateOf(false) }
+    var selectedSettlementParams by remember { mutableStateOf(TripleData("", "", 0.0)) }
+
+    // Observe settlements
+    val settlements by settlementViewModel.getSettlementsForGroup(groupId)
+        .collectAsState(initial = emptyList())
+
+    // Sync settlements when tab is shown
+    LaunchedEffect(Unit) {
+        settlementViewModel.syncSettlementsForGroup(groupId)
+    }
+
+    // Show settlement dialog when requested
+    if (showSettlementDialog) {
+        AddSettlementDialog(
+            groupId = groupId,
+            members = members,
+            fromUserId = selectedSettlementParams.first,
+            toUserId = selectedSettlementParams.second,
+            predefinedAmount = selectedSettlementParams.third,
+            onDismiss = {
+                // Force dialog to close
+                Log.d("BalancesTab", "Settlement dialog dismissed")
+                showSettlementDialog = false
+            },
+            onSettlementAdded = {
+                // Note: this might not get called if there's an issue with the settlement callback
+                Log.d("BalancesTab", "Settlement added - refreshing data")
+                showSettlementDialog = false
+                forceRefresh()
+            }
+        )
+    }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        items(members) { member ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
+        // Header
+        item {
+            Text(
+                text = "Current Balances",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+        }
+
+        // If we don't have the current user yet, show loading
+        if (currentUser == null) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Member name header
-                    Text(
-                        text = member.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Who owes this member money
-                    val owedToThisMember = members.filter { other ->
-                        other.id != member.id &&
-                                (balances[other.id]?.get(member.id) ?: 0.0) > 0
-                    }
-
-                    if (owedToThisMember.isNotEmpty()) {
+                    CircularProgressIndicator()
+                }
+            }
+        } else if (isRefreshing) {
+            // Show loading overlay when refreshing
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Owes you:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "Updating balances...",
+                            style = MaterialTheme.typography.bodyMedium
                         )
+                    }
+                }
+            }
+        } else {
+            item {
+                // Single card for the current user's balances
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        // Check if the current user has any balances
+                        val hasBalances = members.any { other ->
+                            other.id != currentUserId &&
+                                    ((balances[other.id]?.get(currentUserId) ?: 0.0) > 0 ||
+                                            (balances[currentUserId]?.get(other.id) ?: 0.0) > 0)
+                        }
 
-                        owedToThisMember.forEach { otherMember ->
-                            val amount = balances[otherMember.id]?.get(member.id) ?: 0.0
-                            if (amount > 0) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = otherMember.name,
-                                        modifier = Modifier.weight(1f),
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
+                        if (!hasBalances) {
+                            Text(
+                                text = "You have no outstanding balances",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            // Show balances between current user and each member
+                            members.filter { it.id != currentUserId }.forEach { otherMember ->
+                                val theyOwe = balances[otherMember.id]?.get(currentUserId) ?: 0.0
+                                val userOwes = balances[currentUserId]?.get(otherMember.id) ?: 0.0
 
-                                    Text(
-                                        text = currencyFormat.format(amount),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.Green
-                                    )
+                                if (theyOwe > 0 || userOwes > 0) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = otherMember.name,
+                                            modifier = Modifier.width(120.dp),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+
+                                        if (theyOwe > 0) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = "owes you ",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        text = currencyFormat.format(theyOwe),
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = Color.Green,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        } else if (userOwes > 0) {
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = "you owe ",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                        Text(
+                                                            text = currencyFormat.format(userOwes),
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            color = Color.Red,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+
+                                                // Only show settle button for amounts the user owes
+                                                Button(
+                                                    onClick = {
+                                                        selectedSettlementParams = TripleData(
+                                                            first = currentUserId,
+                                                            second = otherMember.id,
+                                                            third = userOwes
+                                                        )
+                                                        showSettlementDialog = true
+                                                    },
+                                                    modifier = Modifier.padding(start = 8.dp)
+                                                ) {
+                                                    Text("Settle")
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
-                    // Who this member owes money to
-                    val thisOwesToOthers = members.filter { other ->
-                        other.id != member.id &&
-                                (balances[member.id]?.get(other.id) ?: 0.0) > 0
-                    }
-
-                    if (thisOwesToOthers.isNotEmpty()) {
-                        if (owedToThisMember.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                        }
-
-                        Text(
-                            text = "You owe:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        thisOwesToOthers.forEach { otherMember ->
-                            val amount = balances[member.id]?.get(otherMember.id) ?: 0.0
-                            if (amount > 0) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = otherMember.name,
-                                        modifier = Modifier.weight(1f),
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-
-                                    Text(
-                                        text = currencyFormat.format(amount),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.Red
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (owedToThisMember.isEmpty() && thisOwesToOthers.isEmpty()) {
+                    if (members.all { other ->
+                            other.id != currentUserId &&
+                                    ((balances[other.id]?.get(currentUserId) ?: 0.0) == 0.0 &&
+                                            (balances[currentUserId]?.get(other.id) ?: 0.0) == 0.0)
+                        }) {
                         Text(
                             text = "All settled up!",
                             style = MaterialTheme.typography.bodyMedium
                         )
+                    }
+                }
+            }
+        }
+
+        // Show recent settlements if any
+        if (settlements.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "Recent Settlements",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                settlements.take(5).forEach { settlement ->
+                    val fromUser = memberMap[settlement.fromUserId]
+                    val toUser = memberMap[settlement.toUserId]
+
+                    if (fromUser != null && toUser != null) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "${fromUser.name} paid ${toUser.name}",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+
+                                    if (settlement.description.isNotEmpty()) {
+                                        Text(
+                                            text = settlement.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    Text(
+                                        text = SimpleDateFormat(
+                                            "MMM d, yyyy",
+                                            Locale.getDefault()
+                                        ).format(
+                                            Date(settlement.createdAt)
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Text(
+                                    text = currencyFormat.format(settlement.amount),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -626,3 +1093,10 @@ fun MemberItem(member: UserRepository.User) {
         }
     }
 }
+
+// Helper class for settlement data
+data class TripleData(
+    val first: String,
+    val second: String,
+    val third: Double
+)

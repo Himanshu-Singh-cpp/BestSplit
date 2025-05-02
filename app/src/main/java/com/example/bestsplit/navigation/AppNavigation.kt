@@ -31,6 +31,7 @@ import com.example.bestsplit.ui.viewmodel.AuthViewModel
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.example.bestsplit.AddExpenseScreen
+import com.example.bestsplit.EditExpenseScreen
 import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.ui.viewmodel.GroupViewModel
 import kotlinx.coroutines.launch
@@ -84,6 +85,9 @@ fun AppNavigation(
                 onNavigateBack = { navController.popBackStack() },
                 onAddExpense = { gId, members ->
                     navController.navigate("add_expense/$gId")
+                },
+                onEditExpense = { expense, members ->
+                    navController.navigate("edit_expense/${expense.groupId}/${expense.id}")
                 }
             )
         }
@@ -117,6 +121,45 @@ fun AppNavigation(
 
             AddExpenseScreen(
                 groupId = groupId,
+                members = members,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // Edit Expense screen
+        composable(
+            route = "edit_expense/{groupId}/{expenseId}",
+            arguments = listOf(
+                navArgument("groupId") { type = NavType.LongType },
+                navArgument("expenseId") { type = NavType.LongType }
+            )
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getLong("groupId") ?: 0L
+            val expenseId = backStackEntry.arguments?.getLong("expenseId") ?: 0L
+
+            // Get the members list from the previous screen or fetch it again
+            val scope = rememberCoroutineScope()
+            val groupViewModel: GroupViewModel = viewModel()
+            val members = remember { mutableStateListOf<UserRepository.User>() }
+
+            LaunchedEffect(groupId) {
+                scope.launch {
+                    val group = groupViewModel.getGroupById(groupId)
+                    if (group != null) {
+                        // Load member details
+                        val userRepo = UserRepository()
+                        val memberDetails = group.members.mapNotNull { memberId ->
+                            userRepo.getUserById(memberId)
+                        }
+                        members.clear()
+                        members.addAll(memberDetails)
+                    }
+                }
+            }
+
+            EditExpenseScreen(
+                groupId = groupId,
+                expenseId = expenseId,
                 members = members,
                 onNavigateBack = { navController.popBackStack() }
             )
