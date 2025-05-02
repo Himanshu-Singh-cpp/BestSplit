@@ -58,26 +58,21 @@ fun AddExpenseScreen(
             is ExpenseViewModel.ExpenseCreationState.Success -> {
                 // Reset the state and navigate back
                 viewModel.resetExpenseCreationState()
-                // Sync expenses for this group to ensure Firebase data is up to date
-                viewModel.syncExpensesForGroup(groupId)
+                // Don't sync here, the Firestore write already happened
                 onNavigateBack()
             }
             is ExpenseViewModel.ExpenseCreationState.Error -> {
-                // Show error message
                 Log.e(
                     "AddExpenseScreen",
                     "Error creating expense: ${(expenseCreationState as ExpenseViewModel.ExpenseCreationState.Error).message}"
                 )
-
-                // Still navigate back to avoid getting stuck
                 scope.launch {
-                    // Delay slightly before navigating back
                     delay(200)
                     viewModel.resetExpenseCreationState()
                     onNavigateBack()
                 }
             }
-            else -> {} // Do nothing for other states
+            else -> {}
         }
     }
 
@@ -146,9 +141,6 @@ fun AddExpenseScreen(
                                         "AddExpenseScreen",
                                         "Shares: ${shares.entries.joinToString { "${it.key}=${it.value}" }}"
                                     )
-
-                                    // Force sync after adding expense
-                                    viewModel.syncExpensesForGroup(groupId)
                                 } catch (e: Exception) {
                                     Log.e("AddExpenseScreen", "Error adding expense", e)
                                 }

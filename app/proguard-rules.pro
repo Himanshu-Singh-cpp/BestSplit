@@ -19,3 +19,20 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep Firestore serializable classes and their no-argument constructors
+-keepclassmembers class com.example.bestsplit.data.entity.** {
+  public <init>();
+}
+
+# Keep all fields for Firestore classes for serialization
+-keepclassmembers class com.example.bestsplit.data.entity.** {
+  *;
+}
+
+# Keep Room database entities
+-keep class com.example.bestsplit.data.entity.** { *; }
+
+# Keep Firestore serializers
+-keepattributes Signature
+-keepattributes *Annotation*

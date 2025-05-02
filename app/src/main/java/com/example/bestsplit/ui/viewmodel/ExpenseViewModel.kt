@@ -1,11 +1,13 @@
 package com.example.bestsplit.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.bestsplit.data.database.AppDatabase
 import com.example.bestsplit.data.entity.Expense
 import com.example.bestsplit.data.repository.ExpenseRepository
+import com.example.bestsplit.data.repository.SettlementRepository
 import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.data.repository.GroupRepository
 import kotlinx.coroutines.delay
@@ -19,6 +21,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val repository: ExpenseRepository
     private val userRepository: UserRepository
     private val groupRepository: GroupRepository
+    private val settlementRepository: SettlementRepository
 
     sealed class ExpenseCreationState {
         object Idle : ExpenseCreationState()
@@ -54,46 +57,17 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     val expenseDeletionState: StateFlow<ExpenseDeletionState> = _expenseDeletionState.asStateFlow()
 
     init {
-        val expenseDao = AppDatabase.getDatabase(application).expenseDao()
+        val database = AppDatabase.getDatabase(application)
+        val expenseDao = database.expenseDao()
         repository = ExpenseRepository(expenseDao)
         userRepository = UserRepository()
-        groupRepository = GroupRepository(AppDatabase.getDatabase(application).groupDao())
+        groupRepository = GroupRepository(database.groupDao())
+        settlementRepository = SettlementRepository(database.settlementDao())
     }
 
     // Public method to initialize the repository
     fun initializeRepository() {
         repository.initialize()
-    }
-
-    // Public method to sync all expenses
-    fun syncAllExpensesAsync() {
-        viewModelScope.launch {
-            // Wait a moment to ensure auth is ready
-            delay(500)
-            performInitialSync()
-        }
-    }
-
-    private suspend fun performInitialSync() {
-        // Perform initial sync of expenses for all user groups
-        val currentUserId = userRepository.getCurrentUserId()
-        if (currentUserId.isEmpty()) return
-
-        // Get all user's groups
-        val groups = groupRepository.getAllGroupsSync()
-        if (groups.isEmpty()) {
-            return
-        }
-
-        val userGroupIds = groups
-            .filter { it.members.contains(currentUserId) }
-            .map { it.id }
-
-        // Sync expenses for these groups
-        repository.syncAllExpenses(userGroupIds)
-
-        // Also trigger an additional full reload in the background
-        fullReloadExpenses()
     }
 
     // Full reload of expenses for reinstalls
@@ -107,30 +81,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             return
 
         }
-
-        val userGroupIds = groups
-            .filter { it.members.contains(currentUserId) }
-            .map { it.id }
-
-        // Perform the full reload
-        repository.fullReloadExpenses(userGroupIds)
-    }
-
-    // Sync all expenses for groups the user is a member of
-    fun syncAllExpenses() {
-        viewModelScope.launch {
-            val currentUserId = userRepository.getCurrentUserId()
-            if (currentUserId.isEmpty()) return@launch
-
-            // Get all user's groups
-            val groups = groupRepository.getAllGroupsSync()
-            val userGroupIds = groups
-                .filter { it.members.contains(currentUserId) }
-                .map { it.id }
-
-            // Sync expenses for these groups
-            repository.syncAllExpenses(userGroupIds)
-        }
     }
 
     fun getExpensesForGroup(groupId: Long): Flow<List<Expense>> {
@@ -140,7 +90,16 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     // Force sync for a specific group
     fun syncExpensesForGroup(groupId: Long) {
         viewModelScope.launch {
-            repository.syncExpensesForGroup(groupId)
+            try {
+                // First perform normal sync
+                repository.syncExpensesForGroup(groupId)
+
+                // Additional sync to ensure all data is retrieved
+                delay(300)
+                repository.syncExpensesForGroup(groupId)
+            } catch (e: Exception) {
+                Log.e("ExpenseViewModel", "Error syncing expenses for group $groupId", e)
+            }
         }
     }
 
@@ -223,7 +182,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         _expenseDeletionState.value = ExpenseDeletionState.Idle
     }
 
-    // Calculate balances between members in a group based on expenses
+    // Calculate balances between members in a group based on expenses and settlements
     suspend fun calculateBalances(
         groupId: Long,
         members: List<String>
@@ -291,6 +250,43 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
 
+            // Apply settlements to balances
+            try {
+                val settlements = settlementRepository.getSettlementsForGroupAsList(groupId)
+
+                // Process each settlement
+                settlements.forEach { settlement ->
+                    val fromUser = settlement.fromUserId
+                    val toUser = settlement.toUserId
+                    val amount = settlement.amount
+
+                    // Skip settlements with invalid data
+                    if (fromUser.isBlank() || toUser.isBlank() ||
+                        !members.contains(fromUser) || !members.contains(toUser) ||
+                        amount <= 0
+                    ) {
+                        return@forEach
+                    }
+
+                    // Create maps if they don't exist
+                    if (!balances.containsKey(fromUser)) balances[fromUser] = mutableMapOf()
+                    if (!balances.containsKey(toUser)) balances[toUser] = mutableMapOf()
+
+                    if (!balances[fromUser]!!.containsKey(toUser)) balances[fromUser]!![toUser] =
+                        0.0
+                    if (!balances[toUser]!!.containsKey(fromUser)) balances[toUser]!![fromUser] =
+                        0.0
+
+                    // Update balances based on settlement
+                    // fromUser paid toUser, so reduce what fromUser owes toUser
+                    balances[fromUser]!![toUser] = (balances[fromUser]!![toUser] ?: 0.0) - amount
+                    // increase what toUser owes fromUser
+                    balances[toUser]!![fromUser] = (balances[toUser]!![fromUser] ?: 0.0) + amount
+                }
+            } catch (e: Exception) {
+                // Log the error and continue with expense-only balances
+            }
+
             // Simplify balances (netting off mutual debts)
             members.forEach { member ->
                 // Skip if member not in balances
@@ -335,5 +331,31 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
 
     suspend fun getExpenseById(expenseId: Long): Expense? {
         return repository.getExpenseById(expenseId)
+    }
+
+    // Recalculates balances for a group and notifies listeners
+    fun recalculateBalances(groupId: Long) {
+        viewModelScope.launch {
+            try {
+                Log.d("ExpenseViewModel", "Recalculating balances for group $groupId")
+
+                // First sync expenses to ensure we have latest data
+                repository.syncExpensesForGroup(groupId)
+
+                // Get the group members from group repository
+                val group = groupRepository.getGroupById(groupId)
+                if (group != null) {
+                    // Calculate balances with latest data
+                    calculateBalances(groupId, group.members)
+                } else {
+                    Log.e(
+                        "ExpenseViewModel",
+                        "Could not recalculate balances - group $groupId not found"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("ExpenseViewModel", "Error recalculating balances for group $groupId", e)
+            }
+        }
     }
 }
