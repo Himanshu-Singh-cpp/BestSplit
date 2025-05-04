@@ -443,6 +443,7 @@ fun GroupDetailsScreen(
                         showQrScanner = showQrScanner,
                         onShowQrScanner = { amount ->
                             qrScanAmount = amount
+                            Log.d("QRPayment", "Setting QR scan amount: $amount")
                             showQrScanner = true
                         }
                     )
@@ -461,6 +462,9 @@ fun GroupDetailsScreen(
                 // Process QR code and close scanner
                 showQrScanner = false
 
+                // Log for debugging
+                Log.d("QRPayment", "QR code detected with amount: $amount")
+
                 // Handle the QR code with a delay to ensure scanner is closed
                 scope.launch {
                     delay(100) // Short delay for cleanup
@@ -476,6 +480,9 @@ fun GroupDetailsScreen(
                             description = "BestSplit Settlement",
                             transactionRef = txnRef
                         )
+
+                        // Log the UPI details for debugging
+                        Log.d("QRPayment", "UPI payment initiated: ID=${upiDetails.upiId}, amount=$amount")
 
                         // Show confirmation and possibly record settlement
                         Toast.makeText(
@@ -868,8 +875,9 @@ fun BalancesTab(
                 showSettlementDialog = false
                 forceRefresh()
             },
-            onStartQrScanner = {
-                onShowQrScanner(selectedSettlementParams.third)
+            onStartQrScanner = { amount ->
+                Log.d("QRPayment", "Starting QR scanner with amount: $amount")
+                onShowQrScanner(amount)
                 showSettlementDialog = false
             }
         )

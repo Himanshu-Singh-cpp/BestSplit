@@ -71,8 +71,12 @@ object UpiPaymentUtils {
         transactionRef: String? = null
     ) {
         try {
+            // Log the input amount
+            Log.d("UpiPaymentUtils", "Initiating payment with amount: $amount")
+
             // Format amount properly with 2 decimal places
             val formattedAmount = String.format("%.2f", amount)
+            Log.d("UpiPaymentUtils", "Formatted amount: $formattedAmount")
 
             // Create UPI payment URI with all required parameters
             val uri = Uri.parse("upi://pay")

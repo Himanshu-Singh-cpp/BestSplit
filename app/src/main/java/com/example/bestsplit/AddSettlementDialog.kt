@@ -258,6 +258,7 @@ fun AddSettlementDialog(
                     onClick = {
                         if (onStartQrScanner != null) {
                             val amountValue = amount.toDoubleOrNull() ?: 0.0
+                            Log.d("QRPayment", "Opening QR scanner with amount: $amountValue")
                             onDismiss()
                             onStartQrScanner(amountValue)
                         } else {
@@ -283,6 +284,8 @@ fun AddSettlementDialog(
                             // Generate transaction reference
                             val txnRef = "BestSplit${System.currentTimeMillis()}"
                             transactionReference = txnRef
+
+                            Log.d("QRPayment", "Direct UPI payment with amount: $amountValue")
 
                             // Initiate the UPI payment first, without recording settlement yet
                             initiateUpiPayment(
