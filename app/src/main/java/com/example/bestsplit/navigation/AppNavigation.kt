@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -21,30 +22,27 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.bestsplit.ActivityScreen
 import com.example.bestsplit.AddGroupScreen
+import com.example.bestsplit.AddExpenseScreen
+import com.example.bestsplit.EditExpenseScreen
 import com.example.bestsplit.FriendsScreen
+import com.example.bestsplit.GroupDetailsScreen
 import com.example.bestsplit.GroupsScreen
 import com.example.bestsplit.LoginScreen
 import com.example.bestsplit.MyAccountScreen
 import com.example.bestsplit.data.model.AuthState
-import com.example.bestsplit.GroupDetailsScreen
+import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.ui.viewmodel.AuthViewModel
+import com.example.bestsplit.ui.viewmodel.GroupViewModel
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
-import com.example.bestsplit.AddExpenseScreen
-import com.example.bestsplit.EditExpenseScreen
-import com.example.bestsplit.data.repository.UserRepository
-import com.example.bestsplit.ui.viewmodel.GroupViewModel
 import kotlinx.coroutines.launch
-
-
-// Remove this sealed class as it's already defined in BottomNavigation.kt
-// Use the imported Screen class instead
 
 @Composable
 fun AppNavigation(
     navController: NavHostController,
     modifier: Modifier = Modifier,
-    authViewModel: AuthViewModel = viewModel()
+    authViewModel: AuthViewModel = viewModel(),
+    darkTheme: MutableState<Boolean>? = null
 ) {
     val authState by authViewModel.authState.collectAsState()
 
@@ -183,7 +181,9 @@ fun AppNavigation(
             )
         }
         composable(Screen.Account.route) {
-            MyAccountScreen()
+            MyAccountScreen(
+                darkTheme = darkTheme
+            )
         }
     }
 }

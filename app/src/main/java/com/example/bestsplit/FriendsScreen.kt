@@ -44,7 +44,9 @@ fun FriendsScreen(
             }
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+        Column(modifier = Modifier
+            .padding(padding)
+            .padding(16.dp)) {
             Text(
                 text = "Friends",
                 style = MaterialTheme.typography.headlineMedium,
@@ -117,7 +119,9 @@ fun FriendsScreen(
 fun FriendsList(friends: List<Friend>, modifier: Modifier = Modifier) {
     if (friends.isEmpty()) {
         Box(
-            modifier = Modifier.fillMaxWidth().padding(32.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -188,7 +192,7 @@ fun FriendCard(friend: Friend, modifier: Modifier = Modifier) {
                 val balanceText = when {
                     friend.balance > 0 -> "Owes you $${String.format("%.2f", friend.balance)}"
                     friend.balance < 0 -> "You owe $${String.format("%.2f", -friend.balance)}"
-                    else -> "All settled up"
+                    else -> friend.email
                 }
 
                 val balanceColor = when {

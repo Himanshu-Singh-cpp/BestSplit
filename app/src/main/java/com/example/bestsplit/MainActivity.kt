@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -69,15 +70,18 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            BestSplitTheme {
-                AppMain()
+            val darkTheme = rememberSaveable { mutableStateOf(false) }
+            BestSplitTheme(
+                useDarkTheme = darkTheme.value
+            ) {
+                AppMain(darkTheme = darkTheme)
             }
         }
     }
 }
 
 @Composable
-fun AppMain() {
+fun AppMain(darkTheme: androidx.compose.runtime.MutableState<Boolean>) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -167,7 +171,8 @@ fun AppMain() {
     ) { innerPadding ->
         AppNavigation(
             navController = navController,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier.padding(innerPadding),
+            darkTheme = darkTheme
         )
     }
 }

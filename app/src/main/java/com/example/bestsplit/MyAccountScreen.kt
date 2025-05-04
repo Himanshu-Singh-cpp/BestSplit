@@ -21,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,7 +43,10 @@ import com.example.bestsplit.ui.theme.BestSplitTheme
 import kotlinx.coroutines.launch
 
 @Composable
-fun MyAccountScreen(modifier: Modifier = Modifier) {
+fun MyAccountScreen(
+    modifier: Modifier = Modifier,
+    darkTheme: androidx.compose.runtime.MutableState<Boolean>? = null
+) {
     val context = LocalContext.current
     val userRepository = remember { UserRepository() }
     val coroutineScope = rememberCoroutineScope()
@@ -69,6 +73,41 @@ fun MyAccountScreen(modifier: Modifier = Modifier) {
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        // Theme Toggle
+        if (darkTheme != null) {
+            Text(
+                text = "Appearance",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Dark theme",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.align(Alignment.CenterStart)
+                )
+
+                Switch(
+                    checked = darkTheme.value,
+                    onCheckedChange = { darkTheme.value = it },
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
+            }
+
+            Divider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
 
         // Payment Information
         Text(
@@ -227,9 +266,10 @@ fun AccountInfoItem(label: String, value: String) {
 @Preview(showBackground = true)
 @Composable
 fun MyAccountScreenPreview() {
+    val previewDarkTheme = remember { mutableStateOf(false) }
     BestSplitTheme {
         Surface {
-            MyAccountScreen()
+            MyAccountScreen(darkTheme = previewDarkTheme)
         }
     }
 }
