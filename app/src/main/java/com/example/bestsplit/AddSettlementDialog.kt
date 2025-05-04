@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction.Companion.Send
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -51,6 +52,9 @@ import com.example.bestsplit.data.repository.UserRepository
 import com.example.bestsplit.ui.viewmodel.SettlementViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
+import android.Manifest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,6 +91,9 @@ fun AddSettlementDialog(
     // Payment transaction reference for tracking
     var transactionReference by remember { mutableStateOf<String?>(null) }
     var showPaymentVerificationDialog by remember { mutableStateOf(false) }
+
+    // State for showing QR scanner
+    var showQrScanner by remember { mutableStateOf(false) }
 
     // Handle settlement creation completion
     LaunchedEffect(settlementState) {
@@ -248,6 +255,25 @@ fun AddSettlementDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // Scan UPI QR button
+                Button(
+                    onClick = {
+                        if (checkCameraPermission(context)) {
+                            showQrScanner = true
+                        } else {
+                            requestCameraPermission(context)
+                            Toast.makeText(
+                                context,
+                                "Camera permission is needed to scan QR codes",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Scan & Pay with UPI QR")
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // UPI Payment Button - show only if recipient has a valid UPI ID
@@ -277,7 +303,7 @@ fun AddSettlementDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Send,
+                            imageVector = Icons.Filled.Send,
                             contentDescription = "Pay",
                             modifier = Modifier.padding(end = 8.dp)
                         )
@@ -285,6 +311,28 @@ fun AddSettlementDialog(
                             "Pay ₹${
                                 amount.toDoubleOrNull()?.let { String.format("%.2f", it) } ?: "0.00"
                             } via UPI")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Add Scan & Pay button
+                    Button(
+                        onClick = {
+                            if (checkCameraPermission(context)) {
+                                showQrScanner = true
+                            } else {
+                                requestCameraPermission(context)
+                                Toast.makeText(
+                                    context,
+                                    "Camera permission is needed to scan QR codes",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // No icon since we don't have a generic QR code icon
+                        Text("Scan & Pay")
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -364,6 +412,63 @@ fun AddSettlementDialog(
                 }
             }
         }
+    }
+
+    // Show QR scanner if needed
+    if (showQrScanner) {
+        QRScannerScreen(
+            onClose = {
+                // Immediately close the scanner when user requests
+                showQrScanner = false
+            },
+            onQrCodeDetected = { qrContent ->
+                // Process QR code content
+                // Immediately close the scanner to prevent BufferQueue abandoned error
+                showQrScanner = false
+
+                // Process the QR code on a small delay to ensure scanner is closed first
+                // This helps prevent the "BufferQueue has been abandoned" error by ensuring
+                // the camera is released before processing the result
+                scope.launch {
+                    delay(100) // Short delay for cleanup
+                    UpiPaymentUtils.parseUpiQrCode(qrContent)?.let { upiDetails ->
+                        // Found a UPI QR code, fill in details
+                        if (amount.isEmpty() && upiDetails.amount != null && upiDetails.amount > 0) {
+                            amount = upiDetails.amount.toString()
+                        }
+
+                        // Initiate UPI payment if we have all details
+                        if (amount.toDoubleOrNull() != null && amount.toDoubleOrNull()!! > 0.0) {
+                            // Generate transaction reference
+                            val txnRef = "BestSplit${System.currentTimeMillis()}"
+                            transactionReference = txnRef
+
+                            // Initiate payment
+                            initiateUpiPayment(
+                                context = context,
+                                upiId = upiDetails.upiId,
+                                amount = amount.toDoubleOrNull() ?: 0.0,
+                                description = description.ifEmpty { "BestSplit Settlement" },
+                                transactionRef = txnRef
+                            )
+
+                            // Show verification dialog after a delay
+                            scope.launch {
+                                delay(1500) // Wait for user to complete payment
+                                showPaymentVerificationDialog = true
+                            }
+                        }
+                    } ?: run {
+                        // Not a valid UPI QR code
+                        Toast.makeText(
+                            context,
+                            "Not a valid UPI QR code",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        )
     }
 
     // Payment verification dialog
@@ -514,3 +619,43 @@ private fun initiateUpiPayment(
         Toast.makeText(context, "Error initiating payment: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
+
+/**
+ * Check if camera permission is granted
+ */
+private fun checkCameraPermission(context: Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA
+    ) == PackageManager.PERMISSION_GRANTED
+}
+
+/**
+ * Request camera permission
+ */
+private fun requestCameraPermission(context: Context) {
+    val activity = context as? android.app.Activity
+    if (activity != null) {
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.CAMERA),
+            CAMERA_PERMISSION_CODE
+        )
+
+        // Show explanation to user
+        Toast.makeText(
+            context,
+            "Camera permission is needed to scan QR codes",
+            Toast.LENGTH_LONG
+        ).show()
+    } else {
+        // If we can't get the activity, show a toast explaining the issue
+        Toast.makeText(
+            context,
+            "Cannot request camera permission in this context",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+}
+
+private const val CAMERA_PERMISSION_CODE = 100
