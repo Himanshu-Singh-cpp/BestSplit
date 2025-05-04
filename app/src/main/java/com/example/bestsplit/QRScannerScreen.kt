@@ -48,7 +48,8 @@ import java.util.concurrent.Executors
 @Composable
 fun QRScannerScreen(
     onClose: () -> Unit,
-    onQrCodeDetected: (String) -> Unit
+    onQrCodeDetected: (String, Double) -> Unit,
+    amount: Double = 0.0
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -56,6 +57,7 @@ fun QRScannerScreen(
 
     // Keep references updated
     val currentOnQrDetected = rememberUpdatedState(onQrCodeDetected)
+    val currentOnClose = rememberUpdatedState(onClose)
 
     // Clean up when leaving composition
     DisposableEffect(Unit) {
@@ -81,25 +83,32 @@ fun QRScannerScreen(
                 .padding(paddingValues)
                 .fillMaxSize()
         ) {
-            // Camera Preview
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx)
-                    startCamera(
-                        context = ctx,
-                        lifecycleOwner = lifecycleOwner,
-                        previewView = previewView,
-                        cameraExecutor = cameraExecutor,
-                        onDetected = { barcode ->
-                            currentOnQrDetected.value(barcode)
-                        }
-                    )
+                    try {
+                        startCamera(
+                            context = ctx,
+                            lifecycleOwner = lifecycleOwner,
+                            previewView = previewView,
+                            cameraExecutor = cameraExecutor,
+                            onDetected = { barcode ->
+                                Log.d("QRScanner", "QR Code detected: $barcode")
+                                currentOnQrDetected.value(barcode, amount)
+                                currentOnClose.value()
+                            }
+                        )
+                    } catch (e: Exception) {
+                        Log.e("QRScanner", "Error starting camera", e)
+                        Toast.makeText(ctx, "Could not start camera: ${e.message}", Toast.LENGTH_LONG).show()
+                        // Close the scanner if camera cannot start
+                        currentOnClose.value()
+                    }
                     previewView
                 },
                 modifier = Modifier.fillMaxSize()
             )
 
-            // QR code guide frame
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -139,39 +148,41 @@ private fun startCamera(
         try {
             val cameraProvider = cameraProviderFuture.get()
 
-            // Preview
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
-            // Image analyzer
             val imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor, QRCodeAnalyzer { barcodes ->
-                        for (barcode in barcodes) {
-                            barcode.rawValue?.let { code ->
-                                onDetected(code)
-                            }
+                        barcodes.firstOrNull()?.rawValue?.let { code ->
+                            Log.d("QRScanner", "QR Code detected: $code")
+                            onDetected(code)
                         }
                     })
                 }
 
-            // Select back camera
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-            // Unbind all usecases and bind ours
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview,
-                imageAnalyzer
-            )
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    preview,
+                    imageAnalyzer
+                )
+                Log.d("QRScanner", "Camera bound successfully")
+            } catch (ex: Exception) {
+                Log.e("QRScanner", "Camera binding failed", ex)
+                throw ex
+            }
 
         } catch (ex: Exception) {
             Log.e("QRScanner", "Camera setup failed", ex)
+            throw ex
         }
     }, ContextCompat.getMainExecutor(context))
 }
@@ -195,11 +206,13 @@ private class QRCodeAnalyzer(
                 mediaImage,
                 imageProxy.imageInfo.rotationDegrees
             )
-            
+
             scanner.process(image)
                 .addOnSuccessListener { barcodes ->
                     if (barcodes.isNotEmpty()) {
                         onQRCodesDetected(barcodes)
+                        imageProxy.close()
+                        return@addOnSuccessListener
                     }
                 }
                 .addOnFailureListener {

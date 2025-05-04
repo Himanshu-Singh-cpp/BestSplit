@@ -66,7 +66,8 @@ fun AddSettlementDialog(
     predefinedAmount: Double = 0.0,
     onDismiss: () -> Unit,
     onSettlementAdded: () -> Unit,
-    viewModel: SettlementViewModel = viewModel()
+    viewModel: SettlementViewModel = viewModel(),
+    onStartQrScanner: ((Double) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -91,9 +92,6 @@ fun AddSettlementDialog(
     // Payment transaction reference for tracking
     var transactionReference by remember { mutableStateOf<String?>(null) }
     var showPaymentVerificationDialog by remember { mutableStateOf(false) }
-
-    // State for showing QR scanner
-    var showQrScanner by remember { mutableStateOf(false) }
 
     // Handle settlement creation completion
     LaunchedEffect(settlementState) {
@@ -258,14 +256,15 @@ fun AddSettlementDialog(
                 // Scan UPI QR button
                 Button(
                     onClick = {
-                        if (checkCameraPermission(context)) {
-                            showQrScanner = true
+                        if (onStartQrScanner != null) {
+                            val amountValue = amount.toDoubleOrNull() ?: 0.0
+                            onDismiss()
+                            onStartQrScanner(amountValue)
                         } else {
-                            requestCameraPermission(context)
                             Toast.makeText(
                                 context,
-                                "Camera permission is needed to scan QR codes",
-                                Toast.LENGTH_LONG
+                                "QR scanner functionality not available",
+                                Toast.LENGTH_SHORT
                             ).show()
                         }
                     },
@@ -311,28 +310,6 @@ fun AddSettlementDialog(
                             "Pay ₹${
                                 amount.toDoubleOrNull()?.let { String.format("%.2f", it) } ?: "0.00"
                             } via UPI")
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Add Scan & Pay button
-                    Button(
-                        onClick = {
-                            if (checkCameraPermission(context)) {
-                                showQrScanner = true
-                            } else {
-                                requestCameraPermission(context)
-                                Toast.makeText(
-                                    context,
-                                    "Camera permission is needed to scan QR codes",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        // No icon since we don't have a generic QR code icon
-                        Text("Scan & Pay")
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -412,63 +389,6 @@ fun AddSettlementDialog(
                 }
             }
         }
-    }
-
-    // Show QR scanner if needed
-    if (showQrScanner) {
-        QRScannerScreen(
-            onClose = {
-                // Immediately close the scanner when user requests
-                showQrScanner = false
-            },
-            onQrCodeDetected = { qrContent ->
-                // Process QR code content
-                // Immediately close the scanner to prevent BufferQueue abandoned error
-                showQrScanner = false
-
-                // Process the QR code on a small delay to ensure scanner is closed first
-                // This helps prevent the "BufferQueue has been abandoned" error by ensuring
-                // the camera is released before processing the result
-                scope.launch {
-                    delay(100) // Short delay for cleanup
-                    UpiPaymentUtils.parseUpiQrCode(qrContent)?.let { upiDetails ->
-                        // Found a UPI QR code, fill in details
-                        if (amount.isEmpty() && upiDetails.amount != null && upiDetails.amount > 0) {
-                            amount = upiDetails.amount.toString()
-                        }
-
-                        // Initiate UPI payment if we have all details
-                        if (amount.toDoubleOrNull() != null && amount.toDoubleOrNull()!! > 0.0) {
-                            // Generate transaction reference
-                            val txnRef = "BestSplit${System.currentTimeMillis()}"
-                            transactionReference = txnRef
-
-                            // Initiate payment
-                            initiateUpiPayment(
-                                context = context,
-                                upiId = upiDetails.upiId,
-                                amount = amount.toDoubleOrNull() ?: 0.0,
-                                description = description.ifEmpty { "BestSplit Settlement" },
-                                transactionRef = txnRef
-                            )
-
-                            // Show verification dialog after a delay
-                            scope.launch {
-                                delay(1500) // Wait for user to complete payment
-                                showPaymentVerificationDialog = true
-                            }
-                        }
-                    } ?: run {
-                        // Not a valid UPI QR code
-                        Toast.makeText(
-                            context,
-                            "Not a valid UPI QR code",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-            }
-        )
     }
 
     // Payment verification dialog

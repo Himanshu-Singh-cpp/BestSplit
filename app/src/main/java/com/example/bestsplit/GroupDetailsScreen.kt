@@ -1,6 +1,7 @@
 package com.example.bestsplit
 
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -55,9 +56,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.bestsplit.data.entity.Expense
 import com.example.bestsplit.data.entity.Group
@@ -91,6 +94,7 @@ fun GroupDetailsScreen(
     var group by remember { mutableStateOf<Group?>(null) }
     var members by remember { mutableStateOf<List<UserRepository.User>>(emptyList()) }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
 
     // Initial sync on screen load
     LaunchedEffect(Unit) {
@@ -270,6 +274,9 @@ fun GroupDetailsScreen(
         }
     }
 
+    var showQrScanner by remember { mutableStateOf(false) }
+    var qrScanAmount by remember { mutableStateOf(0.0) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -432,12 +439,65 @@ fun GroupDetailsScreen(
                                 }
                             }
                         },
-                        settlementViewModel = settlementViewModel
+                        settlementViewModel = settlementViewModel,
+                        showQrScanner = showQrScanner,
+                        onShowQrScanner = { amount ->
+                            qrScanAmount = amount
+                            showQrScanner = true
+                        }
                     )
                     2 -> MembersTab(members)
                 }
             }
         }
+    }
+
+    if (showQrScanner) {
+        QRScannerScreen(
+            onClose = {
+                showQrScanner = false
+            },
+            onQrCodeDetected = { qrContent, amount ->
+                // Process QR code and close scanner
+                showQrScanner = false
+
+                // Handle the QR code with a delay to ensure scanner is closed
+                scope.launch {
+                    delay(100) // Short delay for cleanup
+                    UpiPaymentUtils.parseUpiQrCode(qrContent)?.let { upiDetails ->
+                        // Generate transaction reference
+                        val txnRef = "BestSplit${System.currentTimeMillis()}"
+
+                        // Initiate payment with the passed amount
+                        UpiPaymentUtils.initiateUpiPayment(
+                            context = context,
+                            upiId = upiDetails.upiId,
+                            amount = amount,
+                            description = "BestSplit Settlement",
+                            transactionRef = txnRef
+                        )
+
+                        // Show confirmation and possibly record settlement
+                        Toast.makeText(
+                            context,
+                            "Payment initiated. Please confirm when complete.",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                        // Wait a moment then show settlement dialog again to confirm
+                        delay(1500)
+                    } ?: run {
+                        // Not a valid UPI QR code
+                        Toast.makeText(
+                            context,
+                            "Not a valid UPI QR code",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            },
+            amount = qrScanAmount
+        )
     }
 }
 
@@ -730,7 +790,9 @@ fun BalancesTab(
     currentUserId: String,
     currentUser: UserRepository.User?,
     onSettlementAdded: () -> Unit,
-    settlementViewModel: SettlementViewModel = viewModel()
+    settlementViewModel: SettlementViewModel = viewModel(),
+    showQrScanner: Boolean,
+    onShowQrScanner: (Double) -> Unit
 ) {
     val memberMap = remember(members) {
         members.associateBy { it.id }
@@ -805,6 +867,10 @@ fun BalancesTab(
                 Log.d("BalancesTab", "Settlement added - refreshing data")
                 showSettlementDialog = false
                 forceRefresh()
+            },
+            onStartQrScanner = {
+                onShowQrScanner(selectedSettlementParams.third)
+                showSettlementDialog = false
             }
         )
     }
