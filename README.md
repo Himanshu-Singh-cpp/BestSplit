@@ -1,4 +1,4 @@
-# 💸 SplitWise-Clone: Mobile Computing Course Project
+# 💸 BestSplit: Mobile Computing Course Project
 
 This project is a **modified version of the SplitWise Android application**, developed as part of the *Mobile Computing* course. It enables users to efficiently track shared expenses and settle balances within groups such as friends, families, or roommates.
 
