@@ -75,6 +75,13 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextButton
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,6 +98,13 @@ fun GroupDetailsScreen(
     var group by remember { mutableStateOf<Group?>(null) }
     var members by remember { mutableStateOf<List<UserRepository.User>>(emptyList()) }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+    // State for menu and dialog
+    var showMenu by remember { mutableStateOf(false) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
+
+
 
     // Initial sync on screen load
     LaunchedEffect(Unit) {
@@ -270,6 +284,61 @@ fun GroupDetailsScreen(
         }
     }
 
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text("Delete Group") },
+            text = { Text("Are you sure you want to delete this group? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirmation = false
+                        group?.let {
+                            scope.launch {
+                                isDeleting = true
+                                try {
+                                    Log.d("GroupDetailsScreen", "Starting group deletion for group ${it.id}")
+                                    val success = groupViewModel.deleteGroup(it)
+
+                                    // Longer delay to ensure cloud operations complete
+                                    delay(1000)
+
+                                    if (success) {
+                                        Log.d("GroupDetailsScreen", "Group deletion successful, navigating back")
+                                    } else {
+                                        Log.w("GroupDetailsScreen", "Group deletion encountered issues")
+                                    }
+                                    onNavigateBack()
+                                } catch (e: Exception) {
+                                    Log.e("GroupDetailsScreen", "Error deleting group", e)
+                                } finally {
+                                    isDeleting = false
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    if (isDeleting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.onError
+                        )
+                    } else {
+                        Text("Delete")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -277,6 +346,33 @@ fun GroupDetailsScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    // Add menu button
+                    IconButton(onClick = { showMenu = !showMenu }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                    }
+
+                    // Dropdown menu
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Delete Group") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                showDeleteConfirmation = true
+                            }
+                        )
                     }
                 }
             )

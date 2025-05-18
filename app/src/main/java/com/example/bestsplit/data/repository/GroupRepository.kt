@@ -93,42 +93,40 @@ class GroupRepository(
 
     suspend fun insertGroup(group: Group, memberIds: List<String> = emptyList()): Long {
         val currentUserId = auth.currentUser?.uid ?: return -1
-
-        // Include creator as a member and add other selected members
         val allMembers = (listOf(currentUserId) + memberIds).distinct()
 
-        val groupWithMembers = group.copy(
-            createdBy = currentUserId,
-            members = allMembers
-        )
-
         try {
-            // First, save to Firestore with a generated ID
-            val firestoreGroupRef = firestore.collection(COLLECTION_GROUPS).document()
-            val firestoreId = firestoreGroupRef.id.toLongOrNull() ?:
-            System.currentTimeMillis() // Fallback if not convertible to Long
+            // Generate ID locally first
+            val groupId = System.currentTimeMillis()
 
-            // Update group with Firestore ID before saving anywhere
-            val finalGroup = groupWithMembers.copy(id = firestoreId)
+            // Create group with this ID
+            val finalGroup = group.copy(
+                id = groupId,
+                createdBy = currentUserId,
+                members = allMembers
+            )
 
-            // Save to Firestore first
-            firestoreGroupRef.set(finalGroup).await()
+            // Use the same ID for Firestore document
+            firestore.collection(COLLECTION_GROUPS)
+                .document(groupId.toString())  // Use our ID as document ID
+                .set(finalGroup)
+                .await()
 
-            // Now save to local with the same ID from Firestore
+            // Save locally with same ID
             groupDao.insertGroupWithId(finalGroup)
 
-            // Add reference to this group for each member
+            // Add reference for each member
             for (memberId in allMembers) {
                 firestore.collection("users")
                     .document(memberId)
                     .collection(COLLECTION_USER_GROUPS)
-                    .document(firestoreId.toString())
-                    .set(mapOf("groupId" to firestoreId))
+                    .document(groupId.toString())
+                    .set(mapOf("groupId" to groupId))
                     .await()
             }
 
-            Log.d(TAG, "Group created successfully with ID: $firestoreId, members: ${allMembers.size}")
-            return firestoreId
+            Log.d(TAG, "Group created with consistent ID: $groupId")
+            return groupId
         } catch (e: Exception) {
             Log.e(TAG, "Error creating group", e)
             return -1
@@ -189,15 +187,18 @@ class GroupRepository(
         }
     }
 
-    suspend fun deleteGroup(group: Group) {
-        groupDao.deleteGroup(group)
+    suspend fun deleteGroup(group: Group): Boolean {
+        Log.d(TAG, "Starting deletion process for group ${group.id}")
 
         try {
-            // Remove group document
+            // Delete from Firestore FIRST before local deletion
+            Log.d(TAG, "Deleting group from Firestore...")
             firestore.collection(COLLECTION_GROUPS)
                 .document(group.id.toString())
                 .delete()
                 .await()
+
+            Log.d(TAG, "Group document deleted from Firestore, now removing member references")
 
             // Remove all member references
             for (memberId in group.members) {
@@ -208,8 +209,22 @@ class GroupRepository(
                     .delete()
                     .await()
             }
+
+            // Only after cloud deletion succeeds, delete locally
+            Log.d(TAG, "Cloud deletion complete, now deleting locally")
+            groupDao.deleteGroup(group)
+
+            Log.d(TAG, "Group deletion completed successfully")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting group from Firestore", e)
+            // Still delete locally to maintain UI consistency
+            try {
+                groupDao.deleteGroup(group)
+            } catch (localException: Exception) {
+                Log.e(TAG, "Also failed to delete locally", localException)
+            }
+            return false
         }
     }
 

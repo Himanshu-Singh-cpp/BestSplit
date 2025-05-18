@@ -61,9 +61,12 @@ class GroupViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteGroup(group: Group) {
-        viewModelScope.launch {
+    suspend fun deleteGroup(group: Group): Boolean {
+        return try {
             repository.deleteGroup(group)
+        } catch (e: Exception) {
+            Log.e("GroupViewModel", "Error deleting group", e)
+            false
         }
     }
 
